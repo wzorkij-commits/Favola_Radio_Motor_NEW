@@ -67,7 +67,7 @@ def api(route):
     if path == 'clean' and S.get('iso_fail'):
         return J({'url': VOICE_COPY, 'mime': 'audio/webm', 'cleaned': False, 'why': 'очистка не ответила'})
     if path == 'clean':
-        return J({'url': CLEAN, 'mime': 'audio/mpeg'}) if S['upload_ok'] else J({'audio': 'data:audio/webm;base64,AAAA'})
+        return J({'url': CLEAN, 'play': CLEAN + '?vercel-blob-signature=abc', 'mime': 'audio/mpeg'}) if S['upload_ok'] else J({'audio': 'data:audio/webm;base64,AAAA'})
     if path == 'transcribe':
         return J({'language': 'ru', 'sentences': [{'i': 0, 'text': 'Раз.', 'start': 0, 'end': 1}, {'i': 1, 'text': 'Два.', 'start': 1, 'end': 2}, {'i': 2, 'text': 'Три.', 'start': 2, 'end': 3}],
                   'words': [], 'pauses': [], 'duration': 3})
@@ -161,6 +161,8 @@ starts = [b for b in calls('stories') if b.get('act') == 'start']
 check('сказка сама легла на полку, кнопку никто не нажимал', len(starts) == 1, len(starts))
 aud = (starts[0].get('story') or {}).get('audio') or {} if starts else {}
 check('на полку ушёл и очищенный голос, и исходник', aud.get('url') == CLEAN and aud.get('original') == ORIG, aud)
+check('проигрывается по временной ссылке, а на полку ушёл постоянный адрес',
+      page.evaluate("()=>CURRENT_STORY.audio.play") == CLEAN + '?vercel-blob-signature=abc' and aud.get('url') == CLEAN, page.evaluate("()=>CURRENT_STORY.audio"))
 page.wait_for_timeout(300)
 check('после сохранения запись удалена из памяти телефона', takes() == 0, takes())
 page.click('#pgNext'); page.click('#pgNext'); page.click('#pgNext'); page.wait_for_timeout(200)

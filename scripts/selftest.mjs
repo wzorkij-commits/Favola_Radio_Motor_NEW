@@ -216,13 +216,17 @@ console.log('\nпрямая загрузка записи в хранилище 
       const good = 'https://abc.public.blob.vercel-storage.com/radio-raw/d/x.webm';
       const r1 = await callSt({ method:'POST', body:{ device, act:'start', story:{ kind:'record', title:'Т', lang:'ru', panels:['а'],
         audio:{ url:'https://abc.public.blob.vercel-storage.com/records/clean.mp3', original: good, timeline:[{start:0,end:1}] } } } });
+      const { get: storeGet } = await import('../lib/store.js');
+      const raw1 = await storeGet('rad:story:' + r1.body.id);
+      assert.equal(raw1.audio.original, good);
+      assert.ok(raw1.audio.voice);
       const g1 = await callSt({ method:'GET', query:{ device, id: r1.body.id } });
-      assert.equal(g1.body.audio.original, good);
-      assert.ok(g1.body.audio.voice);
+      assert.ok(g1.body.audio.voice, 'телефону отдан голос');
+      assert.equal(g1.body.audio.original, undefined, 'исходник телефону не отдаём');
       const r2 = await callSt({ method:'POST', body:{ device, act:'start', story:{ kind:'record', title:'Т', lang:'ru', panels:['а'],
         audio:{ url:'https://abc.public.blob.vercel-storage.com/records/clean.mp3', original:'https://evil.example.com/x.webm', timeline:[] } } } });
-      const g2 = await callSt({ method:'GET', query:{ device, id: r2.body.id } });
-      assert.equal(g2.body.audio.original, undefined);
+      const raw2 = await storeGet('rad:story:' + r2.body.id);
+      assert.equal(raw2.audio.original, undefined);
       ok++; console.log('  ok   ' + name);
     } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   })();
@@ -310,6 +314,70 @@ console.log('\nчтение файла из хранилища (lib/blob.js read
     catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   })();
   srv.close();
+}
+
+console.log('\nзакрытое хранилище: временные подписанные ссылки для телефона');
+{
+  const blob = await import('../lib/blob.js');
+  check('распознаёт ссылку закрытого хранилища', () => {
+    assert.ok(blob.isPrivateUrl('https://abc.private.blob.vercel-storage.com/radio-stories/x/panel-1-q.jpg'));
+    assert.ok(!blob.isPrivateUrl('https://abc.public.blob.vercel-storage.com/x.jpg'));
+    assert.ok(!blob.isPrivateUrl('data:image/jpeg;base64,AA'));
+  });
+  check('постоянный адрес без подписи', () => {
+    assert.equal(blob.canonicalUrl('https://abc.private.blob.vercel-storage.com/a/b.jpg?vercel-blob-signature=zz&x=1'), 'https://abc.private.blob.vercel-storage.com/a/b.jpg');
+    assert.equal(blob.canonicalUrl('https://example.com/a?b=1'), 'https://example.com/a?b=1');
+  });
+  const http = await import('node:http');
+  const puts = [];
+  const fake = http.createServer((q, r) => {
+    let raw = ''; q.on('data', c => raw += c); q.on('end', () => {
+      if (q.url.startsWith('/signed-token')) {
+        const b = JSON.parse(raw || '{}');
+        const payload = Buffer.from(JSON.stringify({ storeId: 'teststore', pathname: b.pathname, operations: b.operations, validUntil: b.validUntil })).toString('base64url');
+        r.writeHead(200, { 'content-type': 'application/json' });
+        return r.end(JSON.stringify({ delegationToken: payload + '.sig', clientSigningToken: Buffer.from('k'.repeat(32)).toString('base64url'), validUntil: b.validUntil }));
+      }
+      // запись файла: закрытое хранилище отказывает открытой записи, как настоящее
+      const access = q.headers['x-vercel-blob-access'];
+      puts.push(access);
+      if (access !== 'private') { r.writeHead(400, { 'content-type': 'application/json' }); return r.end(JSON.stringify({ error: { code: 'bad_request', message: 'Cannot use public access on a private store. The store is configured with private access.' } })); }
+      const pathname = new URL(q.url, 'http://x').searchParams.get('pathname');
+      r.writeHead(200, { 'content-type': 'application/json' });
+      r.end(JSON.stringify({ url: 'https://teststore.private.blob.vercel-storage.com/' + pathname, downloadUrl: '', pathname, contentType: 'text/plain', contentDisposition: 'inline' }));
+    });
+  });
+  await new Promise(ok => fake.listen(0, '127.0.0.1', ok));
+  const saved = { ...process.env };
+  const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  Object.assign(process.env, { VERCEL_BLOB_API_URL: 'http://127.0.0.1:' + fake.address().port, VERCEL_BLOB_RETRIES: '0', BLOB_STORE_ID: 'store_teststore',
+    VERCEL_OIDC_TOKEN: b64({ alg:'none' }) + '.' + b64({ exp: Math.floor(Date.now()/1000) + 3600, sub:'t' }) + '.sig' });
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  blob._setAccessForTests(null);
+  await (async () => {
+    const name = 'закрытое хранилище: запись сама переключается на private';
+    try {
+      const u = await blob.putFile('radio-diag/t.txt', Buffer.from('x'), 'text/plain');
+      assert.ok(u.includes('.private.'), u);
+      assert.deepEqual(puts.slice(0, 2), ['public', 'private']);
+      assert.equal(blob.storeAccess(), 'private');
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  await (async () => {
+    const name = 'ссылка для телефона подписана и ведёт на тот же файл';
+    try {
+      const v = await blob.viewUrl('https://teststore.private.blob.vercel-storage.com/radio-stories/rd1/panel-1-abc.jpg');
+      const x = new URL(v);
+      assert.equal(x.hostname, 'teststore.private.blob.vercel-storage.com');
+      assert.equal(x.pathname, '/radio-stories/rd1/panel-1-abc.jpg');
+      assert.ok([...x.searchParams.keys()].some(k => /signature/i.test(k)), 'нет подписи: ' + v);
+      assert.equal(await blob.viewUrl('https://abc.public.blob.vercel-storage.com/a.jpg'), 'https://abc.public.blob.vercel-storage.com/a.jpg');
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  fake.close(); blob._setAccessForTests(null);
+  for (const k of ['VERCEL_BLOB_API_URL','VERCEL_BLOB_RETRIES','BLOB_STORE_ID','VERCEL_OIDC_TOKEN']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
 }
 
 console.log(`\n${ok} прошло, ${fail} провалено`);
