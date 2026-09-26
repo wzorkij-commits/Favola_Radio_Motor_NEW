@@ -19,6 +19,7 @@ threading.Thread(target=httpd.serve_forever, daemon=True).start()
 JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
 ORIG = 'https://teststore.public.blob.vercel-storage.com/radio-raw/d/take-abc.webm'
 CLEAN = 'https://teststore.public.blob.vercel-storage.com/records/clean-abc.mp3'
+VOICE_COPY = 'https://teststore.public.blob.vercel-storage.com/records/voice-abc.webm'
 LIBIMG = 'https://teststore.public.blob.vercel-storage.com/library/ru-repka/scene-1.jpg'
 
 S = {'fail': set(), 'upload_ok': True, 'blob_puts': 0, 'paths': []}
@@ -63,6 +64,8 @@ def api(route):
             return J({'error': 'такой путь для записи не разрешён'}, 500)
         deleg = base64.urlsafe_b64encode(json.dumps({'storeId': 'teststore', 'pathname': pl['pathname'], 'operations': ['put'], 'validUntil': 4102444800000}).encode()).decode().rstrip('=')
         return J({'type': 'blob.generate-presigned-url', 'presignedUrlPayload': {'delegationToken': deleg + '.sig', 'signature': 'abc', 'params': {'vercel-blob-operation': 'put'}}})
+    if path == 'clean' and S.get('iso_fail'):
+        return J({'url': VOICE_COPY, 'mime': 'audio/webm', 'cleaned': False, 'why': 'очистка не ответила'})
     if path == 'clean':
         return J({'url': CLEAN, 'mime': 'audio/mpeg'}) if S['upload_ok'] else J({'audio': 'data:audio/webm;base64,AAAA'})
     if path == 'transcribe':
@@ -204,14 +207,24 @@ check('сказка легла на полку, карточка больше н
 page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(300)
 check('на развилке карточки больше нет', page.is_hidden('#pendingTake'))
 
-print('\nочистка сломалась, а исходник в хранилище: голосом становится исходник')
-CALLS.clear(); S['fail'] = {'clean'}
+print('\nочистка сломалась: голосом становится открытая копия исходника от мотора')
+CALLS.clear(); S['iso_fail'] = True
 record()
 check('сказка всё равно собрана', cur() == 'story', cur())
 starts = [b for b in calls('stories') if b.get('act') == 'start']
 aud = (starts[-1].get('story') or {}).get('audio') or {} if starts else {}
-check('голос сказки — исходник, с пометкой «не очищен»', aud.get('url') == ORIG and aud.get('cleaned') is False, aud)
+check('голос сказки — копия от мотора, с пометкой «не очищен», исходник тоже на полке',
+      aud.get('url') == VOICE_COPY and aud.get('cleaned') is False and aud.get('original') == ORIG, aud)
+S['iso_fail'] = False
+page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(200)
+
+print('\nмотор не ответил на очистке: исходник напрямую голосом не делаем, запись ждёт повтора')
+CALLS.clear(); S['fail'] = {'clean'}
+record()
+check('остаёмся на экране записи с кнопкой повтора', cur() == 'record' and page.is_visible('#recRetry'), cur())
 S['fail'] = set()
+page.click('#recRetry'); page.wait_for_timeout(2000)
+check('повтор собрал сказку с очищенным голосом', cur() == 'story' and page.evaluate("()=>CURRENT_STORY.audio.full") == CLEAN, page.evaluate("()=>CURRENT_STORY.audio && CURRENT_STORY.audio.full"))
 page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(200)
 
 print('\nчтение с суфлёра: ни очистки, ни хранилища — запись не пропадает молча')

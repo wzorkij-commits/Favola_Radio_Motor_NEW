@@ -289,5 +289,28 @@ console.log('\nзагрузка по подписанной ссылке (хра
   for (const k of ['BLOB_STORE_ID','VERCEL_OIDC_TOKEN','BLOB_WEBHOOK_PUBLIC_KEY','VERCEL_BLOB_API_URL','VERCEL_BLOB_RETRIES']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
 }
 
+console.log('\nчтение файла из хранилища (lib/blob.js readFile)');
+{
+  const { readFile } = await import('../lib/blob.js');
+  const http = await import('node:http');
+  const srv = http.createServer((q, r) => { if (q.url === '/ok.webm') { r.writeHead(200, {'content-type':'audio/webm'}); r.end('voice'); } else { r.writeHead(403); r.end('no'); } });
+  await new Promise(ok => srv.listen(0, '127.0.0.1', ok));
+  const base = 'http://127.0.0.1:' + srv.address().port;
+  await (async () => {
+    const name = 'открытый файл читается по ссылке';
+    try { const f = await readFile(base + '/ok.webm'); assert.equal(f.buffer.toString(), 'voice'); assert.equal(f.mime, 'audio/webm'); ok++; console.log('  ok   ' + name); }
+    catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  await (async () => {
+    const name = 'закрытый файл без хранилища — понятная ошибка с кодом 403';
+    try { const saved = { a: process.env.BLOB_READ_WRITE_TOKEN, b: process.env.BLOB_STORE_ID }; delete process.env.BLOB_READ_WRITE_TOKEN; delete process.env.BLOB_STORE_ID;
+      await assert.rejects(() => readFile(base + '/secret.webm'), /403/);
+      if (saved.a) process.env.BLOB_READ_WRITE_TOKEN = saved.a; if (saved.b) process.env.BLOB_STORE_ID = saved.b;
+      ok++; console.log('  ok   ' + name); }
+    catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  srv.close();
+}
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);
