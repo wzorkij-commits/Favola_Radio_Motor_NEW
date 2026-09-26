@@ -228,5 +228,66 @@ console.log('\nпрямая загрузка записи в хранилище 
   })();
 }
 
+console.log('\nзагрузка по подписанной ссылке (хранилище с BLOB_STORE_ID, без полного ключа)');
+{
+  const rec = await import('../lib/record.js');
+  const recordHandler = (await import('../api/record.js')).default;
+  const call = req => {
+    const res = { _status: 200, status(c){ this._status=c; return this; }, json(o){ this._body=o; return this; }, end(){ return this; }, setHeader(){ return this; } };
+    req.query = req.query || {}; req.headers = req.headers || {};
+    return recordHandler(req, res).then(() => ({ status: res._status, body: res._body }));
+  };
+  check('путь для записи проверяется строго', () => {
+    assert.ok(rec.isUploadPathOk('radio-raw/rdabc123/k2x9m1abcd.webm'));
+    assert.ok(rec.isUploadPathOk('radio-raw/d1/abc123.m4a'));
+    assert.ok(!rec.isUploadPathOk('library/ru-repka/scene-1.jpg'));
+    assert.ok(!rec.isUploadPathOk('radio-raw/../x/abc123.webm'));
+    assert.ok(!rec.isUploadPathOk('radio-raw/d1/abc123.exe'));
+  });
+  const saved = { ...process.env };
+  process.env.BLOB_STORE_ID = 'store_teststore'; // Похожий на настоящий пропуск Vercel (JWT со сроком на час вперёд), иначе библиотека попытается его обновить.
+  const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  process.env.VERCEL_OIDC_TOKEN = b64({ alg:'none' }) + '.' + b64({ exp: Math.floor(Date.now()/1000) + 3600, sub:'test' }) + '.sig';
+  process.env.BLOB_WEBHOOK_PUBLIC_KEY = 'pk-test'; delete process.env.BLOB_READ_WRITE_TOKEN;
+  // Подставной Vercel Blob на этом же компьютере: отвечает на запрос разрешения (/signed-token).
+  const asked = [];
+  const http = await import('node:http');
+  const fakeBlob = http.createServer((q, r) => {
+    let raw = ''; q.on('data', c => raw += c); q.on('end', () => {
+      const b = JSON.parse(raw || '{}'); asked.push({ ...b, auth: q.headers.authorization || '' });
+      const payload = Buffer.from(JSON.stringify({ storeId: 'teststore', pathname: b.pathname, operations: b.operations, validUntil: b.validUntil })).toString('base64url');
+      r.writeHead(200, { 'content-type': 'application/json' });
+      r.end(JSON.stringify({ delegationToken: payload + '.sig', clientSigningToken: Buffer.from('k'.repeat(32)).toString('base64url'), validUntil: b.validUntil }));
+    });
+  });
+  await new Promise(ok => fakeBlob.listen(0, '127.0.0.1', ok));
+  process.env.VERCEL_BLOB_API_URL = 'http://127.0.0.1:' + fakeBlob.address().port;
+  process.env.VERCEL_BLOB_RETRIES = '0';
+  await (async () => {
+    const name = 'мотор выдаёт подписанную ссылку ровно на один путь, только на запись';
+    try {
+      const r = await call({ method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'radio-raw/d1/abc123.webm', clientPayload:null, multipart:false } } });
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.ok(r.body.presignedUrlPayload && r.body.presignedUrlPayload.signature, 'нет подписи: ' + JSON.stringify(r.body));
+      assert.equal(asked[0].pathname, 'radio-raw/d1/abc123.webm');
+      assert.deepEqual(asked[0].operations, ['put']);
+      assert.equal(asked[0].maximumSizeInBytes, rec.MAX_UPLOAD_BYTES);
+      assert.ok(asked[0].auth.includes(process.env.VERCEL_OIDC_TOKEN), 'разрешение просили без пропуска Vercel');
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  await (async () => {
+    const name = 'чужой путь (например, в библиотеку) мотор не подписывает';
+    try {
+      const n = asked.length;
+      const r = await call({ method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'library/ru-repka/scene-1.jpg', clientPayload:null, multipart:false } } });
+      assert.equal(r.status, 500); assert.equal(asked.length, n, 'мотор всё равно попросил разрешение');
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  fakeBlob.close();
+  for (const k of ['BLOB_STORE_ID','VERCEL_OIDC_TOKEN','BLOB_WEBHOOK_PUBLIC_KEY','VERCEL_BLOB_API_URL','VERCEL_BLOB_RETRIES']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+}
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

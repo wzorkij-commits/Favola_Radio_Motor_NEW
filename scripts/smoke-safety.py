@@ -3,7 +3,7 @@
 # Что проверяем: запись уходит в хранилище напрямую, очистка берёт её по ссылке,
 # исходник сохраняется рядом, сказка сама ложится на полку, после сбоя сборка
 # продолжается с того же шага, закрытая посреди записи вкладка не теряет голос.
-import json, threading, http.server, socketserver, functools, os, subprocess
+import json, re, base64, threading, http.server, socketserver, functools, os, subprocess
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
 
@@ -16,18 +16,12 @@ socketserver.TCPServer.allow_reuse_address = True
 httpd = socketserver.TCPServer(('127.0.0.1', PORT), functools.partial(Q, directory=ROOT))
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
-# Настоящий пропуск на загрузку, выписанный той же библиотекой, что и мотор.
-TOKEN = subprocess.check_output(['node', '-e', """
-import('@vercel/blob/client').then(async m => {
-  process.stdout.write(await m.generateClientTokenFromReadWriteToken({ token: 'vercel_blob_rw_teststore_secretsecret', pathname: 'radio-raw/d/take.webm' }));
-});"""], cwd=os.path.join(HERE, '..')).decode()
-
 JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
 ORIG = 'https://teststore.public.blob.vercel-storage.com/radio-raw/d/take-abc.webm'
 CLEAN = 'https://teststore.public.blob.vercel-storage.com/records/clean-abc.mp3'
 LIBIMG = 'https://teststore.public.blob.vercel-storage.com/library/ru-repka/scene-1.jpg'
 
-S = {'fail': set(), 'upload_ok': True, 'blob_puts': 0}
+S = {'fail': set(), 'upload_ok': True, 'blob_puts': 0, 'paths': []}
 CALLS = []            # (путь, тело)
 STORE = {}
 results = []
@@ -62,7 +56,13 @@ def api(route):
     if path == 'spend': return J({'ok': True, 'canMake': True, 'canRecord': True})
     if path == 'upload':
         if not S['upload_ok']: return J({'error': 'файловое хранилище не подключено', 'outcome': 'no-storage'}, 503)
-        return J({'pathname': 'radio-raw/d/take.webm', 'clientToken': TOKEN})
+        # Как настоящий мотор: телефон предлагает путь, мотор проверяет его и отдаёт подписанную ссылку.
+        pl = body.get('payload') or {}
+        S['paths'].append(pl.get('pathname'))
+        if body.get('type') != 'blob.generate-presigned-url' or not re.match(r'^radio-raw/[A-Za-z0-9_-]{1,40}/[a-z0-9]{6,40}\.(webm|m4a|mp4|ogg|mp3|wav|aac)$', pl.get('pathname') or ''):
+            return J({'error': 'такой путь для записи не разрешён'}, 500)
+        deleg = base64.urlsafe_b64encode(json.dumps({'storeId': 'teststore', 'pathname': pl['pathname'], 'operations': ['put'], 'validUntil': 4102444800000}).encode()).decode().rstrip('=')
+        return J({'type': 'blob.generate-presigned-url', 'presignedUrlPayload': {'delegationToken': deleg + '.sig', 'signature': 'abc', 'params': {'vercel-blob-operation': 'put'}}})
     if path == 'clean':
         return J({'url': CLEAN, 'mime': 'audio/mpeg'}) if S['upload_ok'] else J({'audio': 'data:audio/webm;base64,AAAA'})
     if path == 'transcribe':
@@ -142,13 +142,14 @@ def record(seconds=0.8):
 
 to_hub()
 check('дошли до развилки', cur() == 'hub', cur())
-check('модуль прямой загрузки подключён', page.evaluate("()=>!!(window.FavolaBlob && FavolaBlob.put)"))
+check('модуль прямой загрузки подключён', page.evaluate("()=>!!(window.FavolaBlob && FavolaBlob.uploadPresigned)"))
 
 print('\nзапись уходит в хранилище напрямую, исходник хранится, сказка сама ложится на полку')
 CALLS.clear()
 record()
 check('сказка собрана', cur() == 'story', cur())
 check('запись ушла в хранилище одним прямым запросом, минуя мотор', S['blob_puts'] == 1, S['blob_puts'])
+check('телефон попросил разрешение на путь внутри radio-raw/', S['paths'] and S['paths'][0].startswith('radio-raw/'), S['paths'])
 cl = calls('clean')
 check('очистка получила ссылку на исходник, а не сам файл', cl and cl[0].get('url') == ORIG and 'audio' not in cl[0], cl)
 tr = calls('transcribe')
