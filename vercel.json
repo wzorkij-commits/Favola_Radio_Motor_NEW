@@ -1,0 +1,19 @@
+{
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 300
+    }
+  },
+  "rewrites": [
+    { "source": "/api/otp", "destination": "/api/auth?__r=otp" },
+    { "source": "/api/spend", "destination": "/api/account?__r=spend" },
+    { "source": "/api/forget", "destination": "/api/account?__r=forget" },
+    { "source": "/api/pay-status", "destination": "/api/pay?__r=pay-status" },
+    { "source": "/api/upload", "destination": "/api/record?__r=upload" },
+    { "source": "/api/clean", "destination": "/api/record?__r=clean" },
+    { "source": "/api/transcribe", "destination": "/api/record?__r=transcribe" },
+    { "source": "/api/scenes", "destination": "/api/record?__r=scenes" },
+    { "source": "/api/polish", "destination": "/api/record?__r=polish" },
+    { "source": "/api/align", "destination": "/api/record?__r=align" }
+  ]
+}

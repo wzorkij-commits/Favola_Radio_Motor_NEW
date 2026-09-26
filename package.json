@@ -1,0 +1,13 @@
+{
+  "name": "favola-radio-pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/checkmodules.mjs && node scripts/selftest.mjs"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.0.0",
+    "eyo-kernel": "^4.1.3"
+  }
+}
