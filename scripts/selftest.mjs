@@ -19,10 +19,13 @@ for (const f of apiFiles) {
 
 console.log('\nбиблиотека сказок (data/library.js)');
 const { LIBRARY, libraryList, libraryOne } = await import('../data/library.js');
-check('в библиотеке двенадцать сказок', () => assert.equal(LIBRARY.length, 12));
-check('шесть русских, шесть английских', () => {
-  assert.equal(LIBRARY.filter(s => s.lang === 'ru').length, 6);
-  assert.equal(LIBRARY.filter(s => s.lang === 'en').length, 6);
+check('в библиотеке тридцать две сказки', () => assert.equal(LIBRARY.length, 32));
+check('шестнадцать русских, шестнадцать английских', () => {
+  assert.equal(LIBRARY.filter(s => s.lang === 'ru').length, 16);
+  assert.equal(LIBRARY.filter(s => s.lang === 'en').length, 16);
+});
+check('каждая сказка читается вслух меньше чем за пять минут (предел записи с суфлёра)', () => {
+  for (const s of LIBRARY) assert.ok(s.text.split(/\s+/).length / 110 < 5, s.id + ': слишком длинная');
 });
 check('все id разные', () => assert.equal(new Set(LIBRARY.map(s => s.id)).size, LIBRARY.length));
 check('у каждой сказки есть текст, источник и оценка времени', () => {
@@ -32,7 +35,7 @@ check('у каждой сказки есть текст, источник и о�
     assert.ok(s.estMinutes > 0, s.id + ': нет оценки времени чтения');
   }
 });
-check('libraryList фильтрует по языку', () => assert.equal(libraryList('ru').length, 6));
+check('libraryList фильтрует по языку', () => assert.equal(libraryList('ru').length, 16));
 check('libraryOne находит по id, иначе null', () => {
   assert.equal(libraryOne('ru-repka').title, 'Репка');
   assert.equal(libraryOne('нет-такой'), null);

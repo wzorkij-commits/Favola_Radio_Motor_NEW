@@ -160,6 +160,13 @@ check('на развилке видна кликабельная надпись 
 page.click('.screen[data-active] .brandbar'); page.wait_for_timeout(150)
 check('нажатие на надпись ведёт на развилку', cur() == 'hub', cur())
 
+print('развилка и значок на домашний экран')
+check('на развилке четыре картинки вместо значков', page.locator('.screen[data-active] .hubcard .pic svg').count() == 4)
+check('слева наверху развилки больше нет надписи FAVOLA RADIO', 'FAVOLA RADIO' not in page.inner_text('.screen[data-active] .topbar'))
+check('значок для домашнего экрана подключён', page.evaluate("()=>!!document.querySelector('link[rel=apple-touch-icon]') && !!document.querySelector('link[rel=manifest]')"))
+import urllib.request
+check('значок и описание приложения открываются', all(urllib.request.urlopen(f'http://localhost:{PORT}/'+f).status == 200 for f in ['icon-180.png','icon-512.png','manifest.webmanifest']))
+
 print('запись голосом')
 page.click('#goRecord'); page.wait_for_timeout(200)
 check('сначала — выбор стиля картинок', cur() == 'style', cur())
@@ -174,6 +181,21 @@ check('название сказки из разбора на сцены', 'За
 check('подпись под картинкой — очищенный текст, а не сырая расшифровка', 'чистый' in page.inner_text('#storyTxt'))
 check('у записанной своим голосом сказки видна кнопка воспроизведения',
       page.evaluate("()=>getComputedStyle(document.getElementById('playBtn')).visibility") == 'visible')
+r = page.evaluate("()=>{const b=document.querySelector('.storypage .art').getBoundingClientRect();return b.width/b.height}")
+check('рамка картинки ровно 4:3', abs(r - 4/3) < 0.02, r)
+check('под плеером видны «Ночной режим» и «Режим сна»', page.is_visible('#storyNight') and page.is_visible('#storySleep'))
+page.click('#storyNight'); page.wait_for_timeout(100)
+check('ночной режим включается прямо со сказки', page.evaluate("()=>document.documentElement.getAttribute('data-theme')") == 'night')
+page.click('#storyNight'); page.wait_for_timeout(100)
+page.evaluate("()=>{ HTMLMediaElement.prototype.play = function(){ return Promise.resolve(); }; Object.defineProperty(HTMLMediaElement.prototype,'paused',{get(){return false}, configurable:true}); }")
+page.click('#storySleep'); page.wait_for_timeout(200)
+check('режим сна: на весь экран только звёздное небо', page.is_visible('#sleepLayer') and page.locator('#sleepSky .star').count() > 20)
+check('в режиме сна включилась ночная тема', page.evaluate("()=>document.documentElement.getAttribute('data-theme')") == 'night')
+page.evaluate("()=>{ PLAYER_AUDIO.dispatchEvent(new Event('ended')); }"); page.wait_for_timeout(200)
+check('когда голос кончился во сне, вопросы не выскакивают', cur() == 'story' and page.is_visible('#sleepLayer'), cur())
+page.click('#sleepExit'); page.wait_for_timeout(150)
+check('выход из сна возвращает сказку и дневную тему', page.is_hidden('#sleepLayer') and page.evaluate("()=>document.documentElement.getAttribute('data-theme')") == 'day')
+page.evaluate("()=>{ delete HTMLMediaElement.prototype.paused; }")
 page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(150)
 
 print('библиотека и телесуфлёр')
