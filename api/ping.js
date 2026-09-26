@@ -12,7 +12,7 @@ import { STORE_READY, get, set } from '../lib/store.js';
 import { SUMUP_READY, merchantCode } from '../lib/sumup.js';
 import { PLANS } from '../lib/plans.js';
 import { LIBRARY } from '../data/library.js';
-import { BLOB_READY, putFile, readFile, deleteFiles } from '../lib/blob.js';
+import { BLOB_READY, putFile, readFile, deleteFiles, viewUrl, storeAccess } from '../lib/blob.js';
 
 const NEED = ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_RU'];
 
@@ -66,13 +66,14 @@ export default async function handler(req, res) {
     let url = null;
     try { url = await putFile('radio-diag/ping.txt', Buffer.from('ok ' + Date.now()), 'text/plain'); out.запись = 'получилась'; out.адрес_вид = url.includes('.private.') ? 'закрытый (private)' : url.includes('.public.') ? 'открытый (public)' : 'другой'; }
     catch (e) { return res.status(200).json({ ...out, ok: false, итог: 'ФАЙЛ НЕ ЗАПИСЫВАЕТСЯ', ошибка: String(e.message || e) }); }
-    try { const f = await fetch(url); out.по_ссылке_без_пропуска = f.status; } catch (e) { out.по_ссылке_без_пропуска = 'ошибка: ' + String(e.message || e); }
+    out.доступ_хранилища = storeAccess() === 'private' ? 'закрытое (private)' : 'открытое (public)';
+    try { const f = await fetch(url); out.по_простой_ссылке = f.status; } catch (e) { out.по_простой_ссылке = 'ошибка: ' + String(e.message || e); }
+    try { const v = await viewUrl(url); const f = await fetch(v); out.по_ссылке_для_телефона = f.status; } catch (e) { out.по_ссылке_для_телефона = 'ошибка: ' + String(e.message || e); }
     try { const f = await readFile(url); out.чтение_мотором = 'получилось (' + f.via + ')'; } catch (e) { out.чтение_мотором = String(e.message || e); }
     await deleteFiles([url]);
-    const open = out.по_ссылке_без_пропуска === 200;
-    out.ok = open && String(out.чтение_мотором).startsWith('получилось');
-    out.итог = open ? 'ХРАНИЛИЩЕ РАБОТАЕТ, ФАЙЛЫ ОТКРЫВАЮТСЯ ПО ССЫЛКЕ'
-                    : 'ФАЙЛЫ ПИШУТСЯ, НО ПО ССЫЛКЕ НЕ ОТКРЫВАЮТСЯ (закрытое хранилище): телефон не сможет показать картинки и проиграть голос';
+    out.ok = out.по_ссылке_для_телефона === 200 && String(out.чтение_мотором).startsWith('получилось');
+    out.итог = out.ok ? 'ХРАНИЛИЩЕ РАБОТАЕТ: файлы пишутся, мотор их читает, телефон их открывает'
+                      : 'ФАЙЛЫ ПИШУТСЯ, НО ТЕЛЕФОН ИХ НЕ ОТКРОЕТ — пришлите этот ответ целиком';
     return res.status(200).json(out);
   }
 

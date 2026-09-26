@@ -12,7 +12,7 @@
 import { cors, generateText, generateImage, jsonFrom } from '../lib/providers.js';
 import { LIBRARY_SCENES_SYSTEM, buildLibraryScenesPrompt, buildCastSheetPrompt, buildSceneImagePrompt } from '../lib/prompts.js';
 import { get, set } from '../lib/store.js';
-import { putFile, BLOB_READY } from '../lib/blob.js';
+import { putFile, BLOB_READY, viewUrl } from '../lib/blob.js';
 import { libraryList, libraryOne } from '../data/library.js';
 
 const planKey = id => 'rad:lib:' + id;
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
         const withCovers = await Promise.all(list.map(async s => {
           const cached = await get(planKey(s.id));
           const cover = (cached && cached.scenes && cached.scenes[0] && cached.scenes[0].image) || null;
-          return { ...s, cover };
+          return { ...s, cover: await viewUrl(cover) };
         }));
         return res.status(200).json({ stories: withCovers });
       }
@@ -89,7 +89,7 @@ export default async function handler(req, res) {
         id: story.id, lang: story.lang, title: story.title, source: story.source,
         estMinutes: story.estMinutes, text: story.text,
         world: plan.world, cast: plan.cast, heroSheet: plan.heroSheet,
-        scenes: plan.scenes.map(s => ({ text: s.text, image: s.image }))
+        scenes: await Promise.all(plan.scenes.map(async s => ({ text: s.text, image: await viewUrl(s.image) })))
       });
     }
 
@@ -103,7 +103,7 @@ export default async function handler(req, res) {
     const n = Number(scene);
     if (!Number.isInteger(n) || n < 0 || n >= plan.scenes.length) return res.status(400).json({ error: 'нет такой сцены' });
 
-    if (plan.scenes[n].image) return res.status(200).json({ image: plan.scenes[n].image, cached: true });
+    if (plan.scenes[n].image) return res.status(200).json({ image: await viewUrl(plan.scenes[n].image), cached: true });
 
     // Лист героя рисуем один раз на всю сказку, если есть постоянные персонажи.
     if (!plan.heroSheet && plan.cast.length) {
@@ -127,7 +127,7 @@ export default async function handler(req, res) {
 
     plan.scenes[n].image = finalUrl;
     await set(planKey(id), plan);
-    return res.status(200).json({ image: finalUrl, cached: false });
+    return res.status(200).json({ image: await viewUrl(finalUrl), cached: false });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
   }

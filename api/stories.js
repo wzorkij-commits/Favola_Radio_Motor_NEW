@@ -9,7 +9,7 @@
 //   GET  /api/stories?device=...&id=...                      — сказка целиком
 import { cors } from '../lib/providers.js';
 import { get, set, loadUser, saveUser } from '../lib/store.js';
-import { putFile, deleteFiles, fromDataUrl, BLOB_READY } from '../lib/blob.js';
+import { putFile, deleteFiles, fromDataUrl, BLOB_READY, viewUrl, canonicalUrl } from '../lib/blob.js';
 import { isBlobUrl } from '../lib/record.js';
 
 const key = id => 'rad:story:' + id;
@@ -33,7 +33,13 @@ export default async function handler(req, res) {
       if (id) {
         const rec = await get(key(id));
         if (!mine(rec, device, u)) return res.status(404).json({ error: 'не найдено' });
-        return res.status(200).json(rec);
+        // Файлы из закрытого хранилища телефон получает по временным подписанным
+        // ссылкам; в описи остаются постоянные адреса.
+        const out = { ...rec, art: await Promise.all((rec.art || []).map(viewUrl)), audio: { ...(rec.audio || {}) } };
+        if (out.audio.voice) out.audio.voice = await viewUrl(out.audio.voice);
+        if (out.audio.full) out.audio.full = await viewUrl(out.audio.full);
+        delete out.audio.original;       // исходник — архив, телефону для проигрывания не нужен
+        return res.status(200).json(out);
       }
 
       const list = [];
@@ -41,7 +47,7 @@ export default async function handler(req, res) {
         const rec = await get(key(sid));
         if (!rec) continue;
         list.push({ id: rec.id, title: rec.title, kind: rec.kind, lang: rec.lang,
-                    at: rec.at, cover: (rec.art || [])[0] || null, done: !!rec.done });
+                    at: rec.at, cover: await viewUrl((rec.art || [])[0] || null), done: !!rec.done });
       }
       return res.status(200).json({ stories: list, файловое_хранилище: BLOB_READY() });
     }
@@ -76,17 +82,17 @@ export default async function handler(req, res) {
         // не пишем — она весит мегабайты и не должна лежать в описи целиком;
         // такую запись клиент отдельно проведёт через act:"asset".
         art: [], audio: (story.audio && story.audio.url && !String(story.audio.url).startsWith('data:'))
-          ? { voice: story.audio.url } : {}
+          ? { voice: canonicalUrl(story.audio.url) } : {}
       };
       // Исходная запись, как её снял телефон, до очистки от шума. Её не проигрываем,
       // но храним навсегда: это настоящий голос, если очистка его хоть чуть испортила.
       // Берём только ссылку из нашего же хранилища.
-      if (story.audio && isBlobUrl(story.audio.original)) rec.audio.original = story.audio.original;
+      if (story.audio && isBlobUrl(story.audio.original)) rec.audio.original = canonicalUrl(story.audio.original);
       // Картинки, у которых уже есть постоянная ссылка (готовая библиотека кэширует
       // свои иллюстрации в хранилище), кладём сразу. Раньше их пытались отправить
       // через act:"asset" как файл, сервер отвечал ошибкой, и сохранение сказки
       // из библиотеки при работающем хранилище срывалось.
-      if (Array.isArray(story.art)) story.art.forEach((u, i) => { if (isBlobUrl(u)) rec.art[i] = u; });
+      if (Array.isArray(story.art)) story.art.forEach((u, i) => { if (isBlobUrl(u)) rec.art[i] = canonicalUrl(u); });
       if (story.audio && story.audio.cleaned === false && rec.meta) rec.meta.notCleaned = true;
       await set(key(sid), rec);
       u.radio_made = [...(u.radio_made || []), sid].slice(-MAX_PER_USER);
