@@ -101,6 +101,7 @@ def api(route):
 
 # Микрофон отдаёт кусочек каждые 300 мс, как MediaRecorder.start(timeslice).
 FAKE_MEDIA = """
+if (!localStorage.getItem('favrad-theme')) localStorage.setItem('favrad-theme', 'day');
 navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop(){} }] });
 class FakeRecorder {
   constructor(){ this.mimeType = 'audio/webm'; this._h = {}; this.state = 'inactive'; }
@@ -161,6 +162,9 @@ starts = [b for b in calls('stories') if b.get('act') == 'start']
 check('сказка сама легла на полку, кнопку никто не нажимал', len(starts) == 1, len(starts))
 aud = (starts[0].get('story') or {}).get('audio') or {} if starts else {}
 check('на полку ушёл и очищенный голос, и исходник', aud.get('url') == CLEAN and aud.get('original') == ORIG, aud)
+st0 = (starts[0].get('story') or {}) if starts else {}
+check('с записью ушла её плитка: семя записи и 16 ячеек громкости', str(st0.get('seed','')).startswith('tk') and len(st0.get('tile') or []) == 16, (st0.get('seed'), st0.get('tile')))
+check('ласточка сообщила, что сказка на стене', page.locator('.toast .swallow').count() == 1)
 check('проигрывается по временной ссылке, а на полку ушёл постоянный адрес',
       page.evaluate("()=>CURRENT_STORY.audio.play") == CLEAN + '?vercel-blob-signature=abc' and aud.get('url') == CLEAN, page.evaluate("()=>CURRENT_STORY.audio"))
 page.wait_for_timeout(300)

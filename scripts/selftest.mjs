@@ -383,5 +383,34 @@ console.log('\nзакрытое хранилище: временные подп�
   for (const k of ['VERCEL_BLOB_API_URL','VERCEL_BLOB_RETRIES','BLOB_STORE_ID','VERCEL_OIDC_TOKEN']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
 }
 
+console.log('\nплитка сказки на стене (seed + громкость по ячейкам)');
+await (async () => {
+  const name = 'act:start хранит семя, 16 ячеек плитки и фигуру, мусор отбрасывает';
+  try {
+    const h = (await import('../api/stories.js')).default;
+    const call = req => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.query=req.query||{}; return h(req,res).then(()=>res._b); };
+    const device = 'tile-' + Date.now();
+    const r = await call({ method:'POST', body:{ device, act:'start', story:{ kind:'record', title:'Т', panels:['а'], emblem:'hedgehog', seed:'tk12<script>ab', tile:[...Array(20)].map((_, i) => i === 3 ? 7 : i / 20) } } });
+    const list = await call({ method:'GET', query:{ device } });
+    const it = list.stories.find(x => x.id === r.id);
+    assert.equal(it.seed, 'tk12scriptab');
+    assert.equal(it.tile.length, 16);
+    assert.equal(it.tile[3], 1);
+    assert.equal(it.emblem, 'hedgehog');
+    const r2 = await call({ method:'POST', body:{ device, act:'start', story:{ kind:'record', title:'Т', panels:['а'], emblem:'<img src=x>' } } });
+    const l2 = await call({ method:'GET', query:{ device } });
+    assert.equal(l2.stories.find(x => x.id === r2.id).emblem, null);
+    ok++; console.log('  ok   ' + name);
+  } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+})();
+
+console.log('\nстиль картинок по умолчанию — португальская книжка');
+{
+  const pr = await import('../lib/prompts.js');
+  check('по умолчанию рисуем португальской книжкой', () => { assert.equal(pr.DEFAULT_STYLE, 'portuguese'); assert.ok(/Portuguese picture-book/.test(pr.styleOf())); assert.ok(/azulejo/.test(pr.styleOf('portuguese'))); });
+  check('прежние стили остались на выбор', () => { for (const k of ['classic','engraving','kids','minecraft']) assert.ok(pr.STYLE_BIBLE[k]); });
+  check('в подсказке нет имён художников', () => assert.ok(!/Keil|Tangerina|Matoso|Carvalho|Bordallo/i.test(pr.STYLE_BIBLE.portuguese)));
+}
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

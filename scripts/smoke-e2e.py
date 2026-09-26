@@ -117,6 +117,7 @@ def api(route):
 # проверяем не запись звука (это умеет браузер сам), а то, что после неё
 # приложение правильно проходит очистку/расшифровку/разбор/сборку картинок.
 FAKE_MEDIA = """
+if (!localStorage.getItem('favrad-theme')) localStorage.setItem('favrad-theme', 'day');
 navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [{ stop(){} }] });
 class FakeRecorder {
   constructor(){ this.mimeType = 'audio/webm'; this._h = {}; }
@@ -146,6 +147,10 @@ print('заставка и вход')
 check('заставка активна при загрузке', cur() == 'intro', cur())
 check('на заставке видны звёзды', page.locator('.sky .star').count() > 0)
 check('кнопка ночного режима на месте', page.is_visible('#themeToggle'))
+g = page.evaluate("()=>{const w=document.querySelector('.intro .wordmarkImg').getBoundingClientRect().width;const bs=[...document.querySelectorAll('.langpick button')].map(b=>b.getBoundingClientRect());const t=document.getElementById('themeToggle').getBoundingClientRect();return {w, bw:Math.max(...bs.map(b=>b.width)), bh:Math.min(...bs.map(b=>b.height)), tw:t.width, prim:document.querySelectorAll('.langpick button.primary').length}}")
+check('кнопки языка не шире надписи Favola', g['bw'] <= g['w'] + 0.5, g)
+check('кнопки и переключатель не меньше 44 pt (правило Apple)', g['bh'] >= 44 and g['tw'] >= 44, g)
+check('ровно одна основная кнопка языка', g['prim'] == 1, g)
 page.click('#themeToggle'); page.wait_for_timeout(100)
 check('ночной режим включился', page.evaluate("()=>document.documentElement.getAttribute('data-theme')") == 'night')
 page.click('#themeToggle'); page.wait_for_timeout(100)
@@ -156,12 +161,15 @@ page.fill('#email', 'roditel@example.com'); page.click('#sendCode'); page.wait_f
 check('после отправки кода показано поле кода', page.is_visible('#codeWrap'))
 page.fill('#code', '123456'); page.click('#checkCode'); page.wait_for_timeout(400)
 check('после верного кода — развилка', cur() == 'hub', cur())
-check('на развилке видна кликабельная надпись Favola Radio', page.is_visible('.screen[data-active] .brandbar img'))
+check('развилка встречает по времени суток', any(w in page.inner_text('#helloTitle') for w in ['Доброе','Добрый','Доброй']), page.inner_text('#helloTitle'))
+page.click('#goShelf'); page.wait_for_timeout(300)
+check('на остальных экранах видна кликабельная надпись Favola Radio', page.is_visible('.screen[data-active] .brandbar img.wm-day'))
 page.click('.screen[data-active] .brandbar'); page.wait_for_timeout(150)
 check('нажатие на надпись ведёт на развилку', cur() == 'hub', cur())
 
 print('развилка и значок на домашний экран')
-check('на развилке четыре картинки вместо значков', page.locator('.screen[data-active] .hubcard .pic svg').count() == 4)
+check('на развилке главная кнопка записи и три плитки', page.is_visible('#goRecord') and page.locator('.screen[data-active] .tilebtn .tile').count() == 3)
+check('на главной кнопке ласточка', page.locator('#goRecord .swallow').count() == 1)
 check('слева наверху развилки больше нет надписи FAVOLA RADIO', 'FAVOLA RADIO' not in page.inner_text('.screen[data-active] .topbar'))
 check('значок для домашнего экрана подключён', page.evaluate("()=>!!document.querySelector('link[rel=apple-touch-icon]') && !!document.querySelector('link[rel=manifest]')"))
 import urllib.request
@@ -170,7 +178,7 @@ check('значок и описание приложения открывают�
 print('запись голосом')
 page.click('#goRecord'); page.wait_for_timeout(200)
 check('сначала — выбор стиля картинок', cur() == 'style', cur())
-check('в списке стилей четыре варианта', page.locator('.stylecard').count() == 4)
+check('в списке стилей пять вариантов, первым — португальская книжка', page.locator('.stylecard').count() == 5 and 'Португальская' in page.inner_text('.stylecard >> nth=0'))
 page.click('.stylecard >> nth=0'); page.wait_for_timeout(150)
 check('экран записи открылся', cur() == 'record', cur())
 page.click('#recStart'); page.wait_for_timeout(200)
@@ -269,7 +277,13 @@ page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(200)
 page.click('#goShelf'); page.wait_for_timeout(300)
 check('полка открылась', cur() == 'shelf', cur())
 check('сказка, прочитанная и сохранённая ранее, попала на полку', page.locator('#shelfGrid .book').count() >= 1)
-page.click('#shelfGrid .book >> nth=0'); page.wait_for_timeout(400)
+check('стена сложена из плиток', page.locator('#shelfGrid .book .tile').count() >= 1)
+check('в центре плитки розетка из четырёх фигурок сказки', page.evaluate("()=>document.querySelector('#shelfGrid .book .tile').innerHTML.split('rotate(').length > 4 && document.querySelector('#shelfGrid .book .tile').innerHTML.includes('scale(0.5)')"))
+fig = page.evaluate("()=>[emblemFor('Ёжик и луна'), emblemFor('Колобок'), emblemFor('Как папа поймал рыбу'), emblemFor('The Three Little Pigs'), emblemFor('Который час')]")
+check('фигура выбирается по словам: ёжик, колобок, рыба, поросята; «который» — не кот', fig == ['hedgehog','bun','fish','pig',None], fig)
+page.click('#shelfGrid .book >> nth=0'); page.wait_for_timeout(300)
+check('нажатие на плитку показывает карточку сказки снизу', page.is_visible('#wallSheet') and page.inner_text('#wallSheetTitle') != '')
+page.click('#wallPlay'); page.wait_for_timeout(400)
 check('сказка с полки открылась заново', cur() == 'story', cur())
 check('у переоткрытой сказки со звуком видна кнопка воспроизведения',
       page.evaluate("()=>getComputedStyle(document.getElementById('playBtn')).visibility") == 'visible')
