@@ -15,7 +15,9 @@ import { get, set } from '../lib/store.js';
 import { putFile, BLOB_READY, viewUrl } from '../lib/blob.js';
 import { libraryList, libraryOne } from '../data/library.js';
 
-const planKey = id => 'rad:lib:' + id;
+// «lib2»: с 27 сентября 2026 библиотека рисуется португальской книжкой (DEFAULT_STYLE);
+// новый ключ — чтобы все обложки и картинки нарисовались заново, старые не мешали.
+const planKey = id => 'rad:lib2:' + id;
 
 async function ensurePlan(story) {
   const cached = await get(planKey(story.id));

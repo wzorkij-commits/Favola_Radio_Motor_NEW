@@ -46,7 +46,7 @@ export default async function handler(req, res) {
       for (const sid of (u.radio_made || []).slice(-MAX_PER_USER).reverse()) {
         const rec = await get(key(sid));
         if (!rec) continue;
-        list.push({ id: rec.id, title: rec.title, kind: rec.kind, lang: rec.lang,
+        list.push({ id: rec.id, title: rec.title, kind: rec.kind, lang: rec.lang, seed: rec.seed || null, tile: rec.tile || null, emblem: rec.emblem || null,
                     at: rec.at, cover: await viewUrl((rec.art || [])[0] || null), done: !!rec.done });
       }
       return res.status(200).json({ stories: list, файловое_хранилище: BLOB_READY() });
@@ -87,6 +87,10 @@ export default async function handler(req, res) {
       // Исходная запись, как её снял телефон, до очистки от шума. Её не проигрываем,
       // но храним навсегда: это настоящий голос, если очистка его хоть чуть испортила.
       // Берём только ссылку из нашего же хранилища.
+      // Плитка на стене: семя узора и громкость голоса по ячейкам (0..1), как рисовалось при записи.
+      rec.emblem = /^[a-z]{2,20}$/.test(String(story.emblem || '')) ? story.emblem : null;
+      rec.seed = String(story.seed || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || null;
+      rec.tile = Array.isArray(story.tile) ? story.tile.slice(0, 16).map(n => Math.round(Math.max(0, Math.min(1, Number(n) || 0)) * 100) / 100) : null;
       if (story.audio && isBlobUrl(story.audio.original)) rec.audio.original = canonicalUrl(story.audio.original);
       // Картинки, у которых уже есть постоянная ссылка (готовая библиотека кэширует
       // свои иллюстрации в хранилище), кладём сразу. Раньше их пытались отправить
