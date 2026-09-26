@@ -5,12 +5,14 @@
 //   /api/ping?test=text   — реально просит модель ответить одним словом
 //   /api/ping?test=store  — проверка общего с Favola хранилища
 //   /api/ping?test=pay    — проверка SumUp
+//   /api/ping?test=blob   — файловое хранилище: пишется ли файл и открывается ли он по ссылке
 import { generateVoice, generateImage, generateText } from '../lib/providers.js';
 import { VOICE_SETTINGS } from '../lib/prompts.js';
 import { STORE_READY, get, set } from '../lib/store.js';
 import { SUMUP_READY, merchantCode } from '../lib/sumup.js';
 import { PLANS } from '../lib/plans.js';
 import { LIBRARY } from '../data/library.js';
+import { BLOB_READY, putFile, readFile, deleteFiles } from '../lib/blob.js';
 
 const NEED = ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_RU'];
 
@@ -57,6 +59,23 @@ export default async function handler(req, res) {
       return res.status(200).json({ test: 'store', ok: false, итог: 'ХРАНИЛИЩЕ НЕ РАБОТАЕТ', ошибка: String(e.message || e) });
     }
   }
+  if (test === 'blob') {
+    const out = { test: 'blob', BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN ? 'есть' : 'нет',
+                  BLOB_STORE_ID: process.env.BLOB_STORE_ID ? 'есть' : 'нет', BLOB_WEBHOOK_PUBLIC_KEY: process.env.BLOB_WEBHOOK_PUBLIC_KEY ? 'есть' : 'нет' };
+    if (!BLOB_READY()) return res.status(200).json({ ...out, ok: false, итог: 'ХРАНИЛИЩЕ ФАЙЛОВ НЕ ПОДКЛЮЧЕНО' });
+    let url = null;
+    try { url = await putFile('radio-diag/ping.txt', Buffer.from('ok ' + Date.now()), 'text/plain'); out.запись = 'получилась'; out.адрес_вид = url.includes('.private.') ? 'закрытый (private)' : url.includes('.public.') ? 'открытый (public)' : 'другой'; }
+    catch (e) { return res.status(200).json({ ...out, ok: false, итог: 'ФАЙЛ НЕ ЗАПИСЫВАЕТСЯ', ошибка: String(e.message || e) }); }
+    try { const f = await fetch(url); out.по_ссылке_без_пропуска = f.status; } catch (e) { out.по_ссылке_без_пропуска = 'ошибка: ' + String(e.message || e); }
+    try { const f = await readFile(url); out.чтение_мотором = 'получилось (' + f.via + ')'; } catch (e) { out.чтение_мотором = String(e.message || e); }
+    await deleteFiles([url]);
+    const open = out.по_ссылке_без_пропуска === 200;
+    out.ok = open && String(out.чтение_мотором).startsWith('получилось');
+    out.итог = open ? 'ХРАНИЛИЩЕ РАБОТАЕТ, ФАЙЛЫ ОТКРЫВАЮТСЯ ПО ССЫЛКЕ'
+                    : 'ФАЙЛЫ ПИШУТСЯ, НО ПО ССЫЛКЕ НЕ ОТКРЫВАЮТСЯ (закрытое хранилище): телефон не сможет показать картинки и проиграть голос';
+    return res.status(200).json(out);
+  }
+
   if (test === 'pay') {
     if (!SUMUP_READY()) return res.status(200).json({ test: 'pay', ok: false, итог: 'ОПЛАТА НЕ ПОДКЛЮЧЕНА' });
     try {
@@ -74,7 +93,7 @@ export default async function handler(req, res) {
     библиотека_сказок: LIBRARY.length,
     живые_проверки: {
       текст: '/api/ping?test=text', картинки: '/api/ping?test=image', озвучка: '/api/ping?test=voice',
-      хранилище: '/api/ping?test=store', оплата: '/api/ping?test=pay'
+      хранилище: '/api/ping?test=store', файлы: '/api/ping?test=blob', оплата: '/api/ping?test=pay'
     },
     hint: ready ? 'Чтобы проверить каждый шаг по-настоящему, откройте адреса выше.'
                 : 'Settings -> Environments -> Production, добавьте недостающие, потом Deployments -> ... -> Redeploy.'
