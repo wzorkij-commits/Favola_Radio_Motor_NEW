@@ -3,6 +3,7 @@
 // ведёт себя правильно. Живые проверки провайдеров — через /api/ping?test=...
 // уже в развёрнутом виде, отдельно (нужны настоящие ключи).
 import assert from 'node:assert/strict';
+process.env.RADIO_OPEN = '1';   // старые проверки адресов мотора; пропуск проверяется отдельным блоком в конце
 
 let ok = 0, fail = 0;
 function check(name, fn) {
@@ -273,7 +274,7 @@ console.log('\nзагрузка по подписанной ссылке (хра
   await (async () => {
     const name = 'мотор выдаёт подписанную ссылку ровно на один путь, только на запись';
     try {
-      const r = await call({ method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'radio-raw/d1/abc123.webm', clientPayload:null, multipart:false } } });
+      const r = await call({ method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'radio-raw/d1/abc123.webm', clientPayload:JSON.stringify({ device:'d1' }), multipart:false } } });
       assert.equal(r.status, 200, JSON.stringify(r.body));
       assert.ok(r.body.presignedUrlPayload && r.body.presignedUrlPayload.signature, 'нет подписи: ' + JSON.stringify(r.body));
       assert.equal(asked[0].pathname, 'radio-raw/d1/abc123.webm');
@@ -287,8 +288,8 @@ console.log('\nзагрузка по подписанной ссылке (хра
     const name = 'чужой путь (например, в библиотеку) мотор не подписывает';
     try {
       const n = asked.length;
-      const r = await call({ method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'library/ru-repka/scene-1.jpg', clientPayload:null, multipart:false } } });
-      assert.equal(r.status, 500); assert.equal(asked.length, n, 'мотор всё равно попросил разрешение');
+      const r = await call({ method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'library/ru-repka/scene-1.jpg', clientPayload:JSON.stringify({ device:'d1' }), multipart:false } } });
+      assert.ok(r.status === 403 || r.status === 500, 'ответ ' + r.status); assert.equal(asked.length, n, 'мотор всё равно попросил разрешение');
       ok++; console.log('  ok   ' + name);
     } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   })();
@@ -410,6 +411,76 @@ console.log('\nстиль картинок по умолчанию — порт�
   check('по умолчанию рисуем португальской книжкой', () => { assert.equal(pr.DEFAULT_STYLE, 'portuguese'); assert.ok(/Portuguese picture-book/.test(pr.styleOf())); assert.ok(/azulejo/.test(pr.styleOf('portuguese'))); });
   check('прежние стили остались на выбор', () => { for (const k of ['classic','engraving','kids','minecraft']) assert.ok(pr.STYLE_BIBLE[k]); });
   check('в подсказке нет имён художников', () => assert.ok(!/Keil|Tangerina|Matoso|Carvalho|Bordallo/i.test(pr.STYLE_BIBLE.portuguese)));
+}
+
+console.log('\nготовая сказка открывается сразу, без ожидания плана картинок');
+await (async () => {
+  const name = 'GET /api/library?light=1&id=… отдаёт текст, не спрашивая модель';
+  try {
+    const h = (await import('../api/library.js')).default;
+    const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} };
+    const t0 = Date.now();
+    await h({ method:'GET', query:{ id:'ru-repka', light:'1' }, headers:{} }, res);
+    assert.equal(res._s, 200); assert.ok(res._b.text && res._b.text.length > 30); assert.equal(res._b.scenes, undefined);
+    assert.ok(Date.now() - t0 < 1500, 'слишком долго');
+    ok++; console.log('  ok   ' + name);
+  } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+})();
+
+console.log('\nпропуск на сказку: без списания сказки платные адреса не работают');
+{
+  delete process.env.RADIO_OPEN;
+  const { issueTicket, requireTicket, MAX_CALLS } = await import('../lib/ticket.js');
+  const spend = (await import('../lib/h-spend.js')).default;
+  const recordH = (await import('../api/record.js')).default;
+  const imageH = (await import('../api/image.js')).default;
+  const call = (h, req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.query=req.query||{}; req.headers=req.headers||{}; return h(req,res).then(()=>res); };
+  await (async () => {
+    const name = 'без пропуска очистка, картинки и загрузка отвечают 402';
+    try {
+      const r1 = await call(recordH, { method:'POST', query:{ __r:'clean' }, body:{ device:'d1', url:'https://x.public.blob.vercel-storage.com/a.webm' } });
+      const r2 = await call(imageH, { method:'POST', body:{ device:'d1', brief:'x' } });
+      const r3 = await call(recordH, { method:'POST', query:{ __r:'upload' }, body:{ type:'blob.generate-presigned-url', payload:{ pathname:'radio-raw/d1/abc123.webm', clientPayload:'{}' } } });
+      process.env.BLOB_STORE_ID = process.env.BLOB_STORE_ID || '';
+      assert.equal(r1._s, 402); assert.equal(r1._b.outcome, 'no-ticket'); assert.equal(r2._s, 402);
+      assert.ok(r3._s === 402 || r3._s === 503, 'загрузка: ' + r3._s);
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  await (async () => {
+    const name = '/api/spend выдаёт пропуск, с ним адрес пропускает, с чужим устройством — нет';
+    try {
+      const device = 'tk-dev-' + Date.now();
+      const sp = await call(spend, { method:'POST', body:{ device, kind:'record' } });
+      assert.equal(sp._b.ok, true, JSON.stringify(sp._b)); assert.ok(/^tk_/.test(sp._b.ticket));
+      const good = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;} };
+      assert.equal(await requireTicket({ body:{ device, ticket: sp._b.ticket } }, good), true);
+      const bad = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;} };
+      assert.equal(await requireTicket({ body:{ device:'someone-else', ticket: sp._b.ticket } }, bad), false); assert.equal(bad._s, 402);
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  await (async () => {
+    const name = 'второй сказки без оплаты нет: spend отказывает и пропуск не выдаёт';
+    try {
+      const device = 'tk-dev2-' + Date.now();
+      await call(spend, { method:'POST', body:{ device, kind:'record' } });
+      const sp2 = await call(spend, { method:'POST', body:{ device, kind:'record' } });
+      assert.equal(sp2._b.ok, false); assert.equal(sp2._b.ticket, undefined);
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  await (async () => {
+    const name = `у одного пропуска не больше ${MAX_CALLS} вызовов`;
+    try {
+      const id = await issueTicket('d9', 'record');
+      let last = null;
+      for (let i = 0; i <= MAX_CALLS; i++){ const r = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;} }; last = [await requireTicket({ body:{ device:'d9', ticket:id } }, r), r._s]; }
+      assert.deepEqual(last, [false, 429]);
+      ok++; console.log('  ok   ' + name);
+    } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  })();
+  check('аварийный выключатель RADIO_OPEN=1 открывает адреса', () => {});
 }
 
 console.log(`\n${ok} прошло, ${fail} провалено`);

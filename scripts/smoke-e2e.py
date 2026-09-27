@@ -17,6 +17,7 @@ JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP////////////////
 
 STATE = {'email': None}
 STORY_STORE = {}
+LIB_URLS = []
 results=[]
 def check(name, cond, extra=''):
     results.append(bool(cond)); print(('  ok   ' if cond else '  FAIL ')+name+(('  -> '+str(extra)) if (extra and not cond) else ''))
@@ -47,6 +48,7 @@ def api(route):
     if path == 'pay-status': return J({'paid': True, 'made': 0, 'canMake': True})
     if path == 'auth' and m == 'POST': return J({'вошёл': False})
     if path == 'library' and m == 'GET':
+        LIB_URLS.append(req.url)
         if qs.get('id'):
             return J({'id':'ru-repka','lang':'ru','title':'Репка','text':'Абзац один.\n\nАбзац два.\n\nАбзац три.',
                        'world':'', 'cast':[], 'heroSheet': None,
@@ -139,6 +141,8 @@ page.on('dialog', lambda d: d.dismiss())  # на случай alert() — не �
 page.add_init_script(FAKE_MEDIA)
 page.route('https://favola-radio.vercel.app/**', api)
 page.route('https://accounts.google.com/**', lambda r: r.abort())
+page.goto(f'http://localhost:{PORT}/index.html?ref=abc'); page.wait_for_timeout(900)
+check('адрес сайта сразу открывает приложение (без заходной страницы), хвост адреса сохраняется', page.url.endswith('/app.html?ref=abc') or '/app.html?ref=abc' in page.url, page.url)
 page.goto(f'http://localhost:{PORT}/app.html'); page.wait_for_timeout(600)
 
 cur = lambda: page.evaluate("()=>{const s=document.querySelector('.screen[data-active]');return s?s.dataset.screen:null}")
@@ -146,6 +150,9 @@ cur = lambda: page.evaluate("()=>{const s=document.querySelector('.screen[data-a
 print('заставка и вход')
 check('заставка активна при загрузке', cur() == 'intro', cur())
 check('на заставке видны звёзды', page.locator('.sky .star').count() > 0)
+check('на заставке нет подписи под логотипом', page.locator('.intro .logo2').count() == 0)
+tops = page.evaluate("()=>[...document.querySelectorAll('#introSky .star')].map(s=>parseFloat(s.style.top))")
+check('звёзды рассыпаны по всему экрану, а не только сверху', len(tops) >= 30 and max(tops) > 75 and min(tops) < 25, (min(tops), max(tops)))
 check('кнопка ночного режима на месте', page.is_visible('#themeToggle'))
 g = page.evaluate("()=>{const w=document.querySelector('.intro .wordmarkImg').getBoundingClientRect().width;const bs=[...document.querySelectorAll('.langpick button')].map(b=>b.getBoundingClientRect());const t=document.getElementById('themeToggle').getBoundingClientRect();return {w, bw:Math.max(...bs.map(b=>b.width)), bh:Math.min(...bs.map(b=>b.height)), tw:t.width, prim:document.querySelectorAll('.langpick button.primary').length}}")
 check('кнопки языка не шире надписи Favola', g['bw'] <= g['w'] + 0.5, g)
@@ -170,6 +177,14 @@ check('нажатие на надпись ведёт на развилку', cur
 print('развилка и значок на домашний экран')
 check('на развилке главная кнопка записи и три плитки', page.is_visible('#goRecord') and page.locator('.screen[data-active] .tilebtn .tile').count() == 3)
 check('на главной кнопке ласточка', page.locator('#goRecord .swallow').count() == 1)
+sz = page.evaluate("()=>[...document.querySelectorAll('.screen[data-active] .tilebtn .tl, #recentRow .rt .tl')].map(e=>{const b=e.getBoundingClientRect();return [Math.round(b.width),Math.round(b.height),Math.round(b.left)]})")
+check('все плитки на развилке одного размера и стоят в одних колонках', len(set((w,h) for w,h,_ in sz)) == 1 and sz[0][0] == sz[0][1] and len(sz) < 4 or (len(set((w,h) for w,h,_ in sz)) == 1 and [x for *_,x in sz[:3]] == [x for *_,x in sz[3:6]]), sz)
+check('подписи: «Прочитать готовую сказку», «Придумать вместе», «Стена сказок»', [page.inner_text(f'#{i} b') for i in ['goLibrary','goWizard','goShelf']] == ['Прочитать готовую сказку','Придумать вместе','Стена сказок'])
+FIT = "()=>{const s=document.querySelector('.screen[data-active]');const sc=s.querySelector('.scroll');return (s.scrollHeight-s.clientHeight)+(sc?sc.scrollHeight-sc.clientHeight:0)}"
+for (vw, vh) in [(390, 664), (375, 560)]:
+    page.set_viewport_size({'width': vw, 'height': vh}); page.wait_for_timeout(250)
+    check(f'развилка помещается в экран {vw}×{vh} без прокрутки', page.evaluate(FIT) <= 0, page.evaluate(FIT))
+page.set_viewport_size({'width': 390, 'height': 844})
 check('слева наверху развилки больше нет надписи FAVOLA RADIO', 'FAVOLA RADIO' not in page.inner_text('.screen[data-active] .topbar'))
 check('значок для домашнего экрана подключён', page.evaluate("()=>!!document.querySelector('link[rel=apple-touch-icon]') && !!document.querySelector('link[rel=manifest]')"))
 import urllib.request
@@ -178,6 +193,9 @@ check('значок и описание приложения открывают�
 print('запись голосом')
 page.click('#goRecord'); page.wait_for_timeout(200)
 check('сначала — выбор стиля картинок', cur() == 'style', cur())
+page.set_viewport_size({'width': 375, 'height': 560}); page.wait_for_timeout(250)
+check('выбор стиля помещается в маленький экран без прокрутки', page.evaluate("()=>{const s=document.querySelector('.screen[data-active]');const sc=s.querySelector('.scroll');return (s.scrollHeight-s.clientHeight)+(sc?sc.scrollHeight-sc.clientHeight:0)}") <= 0)
+page.set_viewport_size({'width': 390, 'height': 844})
 check('в списке стилей пять вариантов, первым — португальская книжка', page.locator('.stylecard').count() == 5 and 'Португальская' in page.inner_text('.stylecard >> nth=0'))
 page.click('.stylecard >> nth=0'); page.wait_for_timeout(150)
 check('экран записи открылся', cur() == 'record', cur())
@@ -212,6 +230,7 @@ check('список библиотеки открылся', cur() == 'library', 
 check('в списке есть хотя бы одна сказка', page.locator('#libGrid .book').count() >= 1)
 page.click('#libGrid .book >> nth=0'); page.wait_for_timeout(300)
 check('открылся телесуфлёр', cur() == 'telep', cur())
+check('текст сказки запрошен без ожидания плана картинок (light)', any('light=1' in u for u in LIB_URLS), LIB_URLS[-3:])
 check('текст сказки показан', 'Абзац один' in page.inner_text('#tpText'))
 check('запись не идёт сама — видна кнопка «Записать»', page.is_visible('#tpRecordBtn') and page.is_hidden('#tpRecIndicator'))
 page.click('#tpRecordBtn'); page.wait_for_timeout(200)

@@ -22,7 +22,7 @@ CLEAN = 'https://teststore.public.blob.vercel-storage.com/records/clean-abc.mp3'
 VOICE_COPY = 'https://teststore.public.blob.vercel-storage.com/records/voice-abc.webm'
 LIBIMG = 'https://teststore.public.blob.vercel-storage.com/library/ru-repka/scene-1.jpg'
 
-S = {'fail': set(), 'upload_ok': True, 'blob_puts': 0, 'paths': []}
+S = {'fail': set(), 'upload_ok': True, 'blob_puts': 0, 'paths': [], 'payloads': []}
 CALLS = []            # (путь, тело)
 STORE = {}
 results = []
@@ -54,12 +54,12 @@ def api(route):
     if path == 'otp' and m == 'GET': return J({'enabled': True})
     if path == 'otp': return J({'outcome': 'ok', 'email': 'r@example.com', 'made': 0, 'canMake': True}) if body.get('code') else J({'outcome': 'sent'})
     if path == 'account': return J({'email': 'r@example.com', 'made': 0, 'canMake': True, 'canRecord': True})
-    if path == 'spend': return J({'ok': True, 'canMake': True, 'canRecord': True})
+    if path == 'spend': return J({'ok': True, 'canMake': True, 'canRecord': True, 'ticket': 'tk_testticket0001'})
     if path == 'upload':
         if not S['upload_ok']: return J({'error': 'файловое хранилище не подключено', 'outcome': 'no-storage'}, 503)
         # Как настоящий мотор: телефон предлагает путь, мотор проверяет его и отдаёт подписанную ссылку.
         pl = body.get('payload') or {}
-        S['paths'].append(pl.get('pathname'))
+        S['paths'].append(pl.get('pathname')); S['payloads'].append(pl.get('clientPayload'))
         if body.get('type') != 'blob.generate-presigned-url' or not re.match(r'^radio-raw/[A-Za-z0-9_-]{1,40}/[a-z0-9]{6,40}\.(webm|m4a|mp4|ogg|mp3|wav|aac)$', pl.get('pathname') or ''):
             return J({'error': 'такой путь для записи не разрешён'}, 500)
         deleg = base64.urlsafe_b64encode(json.dumps({'storeId': 'teststore', 'pathname': pl['pathname'], 'operations': ['put'], 'validUntil': 4102444800000}).encode()).decode().rstrip('=')
@@ -156,6 +156,8 @@ check('запись ушла в хранилище одним прямым за�
 check('телефон попросил разрешение на путь внутри radio-raw/', S['paths'] and S['paths'][0].startswith('radio-raw/'), S['paths'])
 cl = calls('clean')
 check('очистка получила ссылку на исходник, а не сам файл', cl and cl[0].get('url') == ORIG and 'audio' not in cl[0], cl)
+check('к очистке приложен пропуск на сказку', cl and cl[0].get('ticket') == 'tk_testticket0001', cl[0] if cl else None)
+check('к загрузке записи приложены устройство и пропуск', S['payloads'] and '"ticket":"tk_testticket0001"' in (S['payloads'][0] or ''), S['payloads'][:1])
 tr = calls('transcribe')
 check('расшифровка идёт по очищенной записи', tr and tr[0].get('url') == CLEAN, tr)
 starts = [b for b in calls('stories') if b.get('act') == 'start']
@@ -208,6 +210,7 @@ check('кусочки записи сохранились в памяти тел
 page.click('#pendingGo'); page.wait_for_timeout(2500)
 check('из карточки собралась сказка', cur() == 'story', cur())
 check('исходник ушёл в хранилище', len(calls('upload')) >= 1)
+check('после перезагрузки запись собрана со своим сохранённым пропуском', calls('clean') and calls('clean')[-1].get('ticket') == 'tk_testticket0001', calls('clean')[-1:] )
 page.wait_for_timeout(300)
 check('сказка легла на полку, карточка больше не нужна', takes() == 0, takes())
 page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(300)
