@@ -5,11 +5,13 @@
 //   POST /api/image {brief, cast, heroRef, world, shows, fix, panel}
 import { cors, generateImage } from '../lib/providers.js';
 import { buildSceneImagePrompt } from '../lib/prompts.js';
+import { requireTicket } from '../lib/ticket.js';
 
 export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  if (!(await requireTicket(req, res))) return;
 
   try {
     const { brief, cast, heroRef, world, shows, fix, panel, style } = req.body || {};

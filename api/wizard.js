@@ -6,6 +6,7 @@
 //     -> {title, panels:[...], cast, world, scenes:[{brief,shows}], questions}
 import { cors, generateText, jsonFrom } from '../lib/providers.js';
 import { WIZARD_SYSTEM, buildWizardPrompt } from '../lib/prompts.js';
+import { requireTicket } from '../lib/ticket.js';
 
 const clip = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -13,6 +14,7 @@ export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  if (!(await requireTicket(req, res))) return;
 
   try {
     const { answers, lang = 'ru' } = req.body || {};

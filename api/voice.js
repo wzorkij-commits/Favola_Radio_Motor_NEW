@@ -6,11 +6,13 @@
 //   POST /api/voice {text, lang}
 import { cors, generateVoice } from '../lib/providers.js';
 import { VOICE_SETTINGS } from '../lib/prompts.js';
+import { requireTicket } from '../lib/ticket.js';
 
 export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  if (!(await requireTicket(req, res))) return;
 
   try {
     const { text, part, lang = 'ru' } = req.body || {};

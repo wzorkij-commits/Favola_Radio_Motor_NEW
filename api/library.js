@@ -86,6 +86,13 @@ export default async function handler(req, res) {
 
       const story = libraryOne(id);
       if (!story) return res.status(404).json({ error: 'сказка не найдена' });
+      // Для телесуфлёра нужен только текст — отдаём сразу. План картинок (он просит
+      // модель и занимает 10–30 секунд, если сказку ещё никто не открывал) здесь
+      // не ждём: приложение попросит его отдельно, в фоне, пока человек читает.
+      if (req.query && req.query.light) {
+        return res.status(200).json({ id: story.id, lang: story.lang, title: story.title, source: story.source,
+          estMinutes: story.estMinutes, text: story.text });
+      }
       const plan = await ensurePlan(story);
       return res.status(200).json({
         id: story.id, lang: story.lang, title: story.title, source: story.source,
