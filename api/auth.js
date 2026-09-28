@@ -4,8 +4,9 @@
 //
 //   POST /api/auth {device, credential}   — пропуск от Google
 //   POST /api/auth {device, signout:true} — отвязать это устройство
+import { allowed, markJoined } from '../lib/beta.js';
 import { cors } from '../lib/providers.js';
-import { loadUser, saveUser, publicView, linkIdentity, googleKey, emailKey, STORE_READY } from '../lib/store.js';
+import { get, loadUser, saveUser, publicView, linkIdentity, googleKey, emailKey, STORE_READY } from '../lib/store.js';
 import { FREE_STORIES } from '../lib/plans.js';
 import { verifyIdToken, GOOGLE_READY, clientId } from '../lib/google.js';
 import { asked } from '../lib/route.js';
@@ -45,6 +46,10 @@ export default async function handler(req, res) {
     try { who = await verifyIdToken(credential); }
     catch (e) { return res.status(401).json({ error: String(e.message || e) }); }
 
+    // закрытая бета: чужих Google-входов не пускаем, предлагаем список ожидания
+    if (!(who.email && who.emailVerified && await allowed(who.email)) && !(await get(googleKey(who.sub)))) {
+      return res.status(200).json({ outcome: 'beta', email: who.email || '' });
+    }
     u.google = who.sub;
     u.name = who.name;
     if (who.email && who.emailVerified) u.email = who.email;
@@ -53,6 +58,7 @@ export default async function handler(req, res) {
     if (who.email && who.emailVerified) {
       await linkIdentity(u, emailKey(who.email));
       grantOwner(u, who.email);
+      await markJoined(who.email).catch(() => {});
     }
     await saveUser(u);
 

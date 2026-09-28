@@ -40,6 +40,16 @@ export default async function handler(req, res) {
       return res.status(200).json({ test: 'image', ok: false, итог: 'КАРТИНКИ НЕ РАБОТАЮТ', ошибка: String(e.message || e) });
     }
   }
+  if (test === 'all') {
+    // Полная живая проверка всех сервисов (страница favola.space/check.html). Не чаще раза в минуту.
+    const st = await import('../lib/store.js');
+    const last = await st.get('rad:diag:all').catch(() => null);
+    if (last && last.at && Date.now() - last.t < 60 * 1000) return res.status(200).json({ ...last, cached: true });
+    const { runHealth } = await import('../lib/health.js');
+    const out = await runHealth();
+    await st.set('rad:diag:all', { ...out, t: Date.now() }).catch(() => {});
+    return res.status(200).json(out);
+  }
   if (test === 'wizard') {
     // Полный прогон «Придумать вместе» на пробных ответах: что вернула модель на каждой попытке.
     // платная проверка: не чаще раза в 5 минут, чтобы адрес нельзя было «накручивать»
