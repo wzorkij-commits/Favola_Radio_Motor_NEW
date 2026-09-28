@@ -4,7 +4,7 @@
 //
 //   POST /api/wizard {answers:[8 строк], lang}
 //     -> {title, panels:[...], cast, world, scenes:[{brief,shows}], questions}
-import { cors, generateText, jsonFrom } from '../lib/providers.js';
+import { cors, generateTextEx, jsonFrom } from '../lib/providers.js';
 import { WIZARD_SYSTEM, buildWizardPrompt } from '../lib/prompts.js';
 import { requireTicket } from '../lib/ticket.js';
 
@@ -24,6 +24,7 @@ export default async function handler(req, res) {
     const clean = answers.map(a => clip(a, 300));
 
     let out = null, why = '';
+    const trace = [];   // что именно вернула модель на каждой попытке — пишем в журнал Vercel
     // Короткий ответ модели выглядит как тезисы, а не как сказка. Проверяем длину
     // и при необходимости просим переписать полнее (до трёх попыток).
     const MIN_TOTAL = lang === 'en' ? 900 : 1000, MIN_PANEL = 150;
@@ -33,14 +34,20 @@ export default async function handler(req, res) {
           ? (lang === 'en' ? '\n\nYour previous draft was far too short, like an outline. Write the full tale: every paragraph three to five sentences, about 300 words in total.'
                            : '\n\nYour previous draft was far too short, like an outline. Write the full tale in Russian: every paragraph three to five sentences, about 300 words in total.')
           : '';
-        const raw = await generateText({
+        const t0 = Date.now();
+        const resp = await generateTextEx({
           system: WIZARD_SYSTEM, prompt: buildWizardPrompt(clean, lang) + retryNote,
           maxTokens: 4000, temperature: attempt === 1 ? 0.85 : 0.6
         });
-        const j = jsonFrom(raw);
+        const raw = resp.text;
+        const tr = { attempt, ms: Date.now() - t0, stop: resp.stop, outTokens: resp.out, rawChars: raw.length, head: raw.slice(0, 300) };
+        trace.push(tr);
+        let j;
+        try { j = jsonFrom(raw); } catch (e) { tr.parse = 'ошибка: ' + String(e.message || e).slice(0, 160); throw e; }
         const panels = Array.isArray(j.panels) ? j.panels.map(p => clip(p, 900)).filter(Boolean) : [];
         const scenes = Array.isArray(j.scenes) ? j.scenes : [];
         const total = panels.join(' ').length, avg = panels.length ? total / panels.length : 0;
+        Object.assign(tr, { parse: 'ok', panels: panels.length, panelChars: panels.map(p => p.length), rawPanelChars: (Array.isArray(j.panels) ? j.panels : []).map(p => String(p || '').length), scenes: scenes.length, total });
         if (panels.length >= 3 && scenes.length >= 3 && (total < MIN_TOTAL || avg < MIN_PANEL) && attempt < 3) { why = 'short'; continue; }
         if (panels.length >= 3 && scenes.length >= 3) {
           out = {
@@ -78,6 +85,9 @@ export default async function handler(req, res) {
       };
     }
 
+    // След в журнале Vercel (колонка Messages): по нему видно, какой длины текст писала модель
+    console.log('wizard-trace ' + JSON.stringify({ result: out.source === 'fallback' ? 'fallback' : 'ok', why, trace: trace.map(({ head, ...t }) => t) }));
+    if (req.query && req.query.trace === '1') out._trace = trace;
     return res.status(200).json(out);
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });

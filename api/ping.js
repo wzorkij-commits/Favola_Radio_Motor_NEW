@@ -40,6 +40,22 @@ export default async function handler(req, res) {
       return res.status(200).json({ test: 'image', ok: false, итог: 'КАРТИНКИ НЕ РАБОТАЮТ', ошибка: String(e.message || e) });
     }
   }
+  if (test === 'wizard') {
+    // Полный прогон «Придумать вместе» на пробных ответах: что вернула модель на каждой попытке.
+    // платная проверка: не чаще раза в 5 минут, чтобы адрес нельзя было «накручивать»
+    const st = await import('../lib/store.js');
+    const last = await st.get('rad:diag:wizard');
+    if (last && Date.now() - last < 5 * 60 * 1000) return res.status(200).json({ test:'wizard', итог:'подождите пару минут — проверка платная и запускается не чаще раза в 5 минут' });
+    await st.set('rad:diag:wizard', Date.now());
+    const wiz = (await import('./wizard.js')).default;
+    const fake = { method:'POST', query:{ trace:'1' }, headers:{}, body:{ lang:'ru', answers:['Люмен','волшебное существо','полетать на дельтаплане','конь не пускает к небу','волшебный ферзь','Тютеляндия','угостить коня сливой','ферзь научил его договариваться с конём'] } };
+    const prevOpen = process.env.RADIO_OPEN; process.env.RADIO_OPEN = '1';
+    const cap = { _s:200, status(c){ this._s=c; return this; }, json(o){ this._b=o; return this; }, end(){ return this; }, setHeader(){ return this; } };
+    try { await wiz(fake, cap); } finally { if (prevOpen === undefined) delete process.env.RADIO_OPEN; else process.env.RADIO_OPEN = prevOpen; }
+    const b = cap._b || {};
+    return res.status(200).json({ test:'wizard', итог: b.source === 'fallback' ? 'ШАБЛОН (модель не ответила)' : 'СКАЗКА ОТ МОДЕЛИ', причина: b.why || '',
+      длины_абзацев: (b.panels || []).map(x => x.length), попытки: b._trace || [], начало_текста: (b.panels || []).slice(0, 2) });
+  }
   if (test === 'text') {
     try {
       const out = await generateText({ system: 'Отвечай одним словом.', prompt: 'Скажи слово: готово', maxTokens: 20, temperature: 0 });
