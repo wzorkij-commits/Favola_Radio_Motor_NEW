@@ -4,7 +4,7 @@
 //   POST /api/beta {act:'invite', device, emails:[…]}          — пригласить (только владелец)
 //   POST /api/beta {act:'invite-next', device, n}              — пригласить следующих n по очереди
 import { cors } from '../lib/providers.js';
-import { loadUser } from '../lib/store.js';
+import { get, loadUser } from '../lib/store.js';
 import { isOwner } from '../lib/owner.js';
 import { join, invite, listAll, BETA_OPEN } from '../lib/beta.js';
 
@@ -17,8 +17,10 @@ export default async function handler(req, res){
     const q = req.query || {}, b = req.body || {};
     if (req.method === 'GET'){
       if (q.act !== 'list') return res.status(200).json({ beta: !BETA_OPEN() });
-      if (!(await owner(q.device))) return res.status(403).json({ error: 'только для владельца' });
-      return res.status(200).json(await listAll());
+      const me = q.device ? (await loadUser(q.device)).email || null : null;
+      if (!(await owner(q.device))) return res.status(403).json({ error: 'только для владельца', me });
+      const donations = (await get('rad:donate:list')) || [];
+      return res.status(200).json({ ...(await listAll()), me, donations, donatedTotal: Math.round(donations.reduce((s, d) => s + (Number(d.amount) || 0), 0) * 100) / 100 });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'GET или POST' });
     if (b.act === 'join') return res.status(200).json(await join(b));

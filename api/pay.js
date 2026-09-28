@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const { device, plan, amount, email, back } = req.body || {};
+    const { device, plan, amount, email, back, name, message, lang } = req.body || {};
     if (!device) return res.status(400).json({ error: 'нет ключа устройства' });
 
     const isDonation = plan === DONATION.id;
@@ -58,7 +58,8 @@ export default async function handler(req, res) {
     });
 
     u.payments = (u.payments || []).filter(p => p.status !== 'PENDING' || Date.now() - p.at < 36e5);
-    u.payments.push({ ref, checkout: co.id, plan, amount: price, at: Date.now(), status: 'PENDING' });
+    const extra = isDonation ? { name: String(name || '').slice(0, 60), message: String(message || '').slice(0, 300), email: email ? String(email).trim().toLowerCase() : (u.email || ''), lang: lang === 'en' ? 'en' : 'ru' } : {};
+    u.payments.push({ ref, checkout: co.id, plan, amount: price, at: Date.now(), status: 'PENDING', ...extra });
     await saveUser(u);
 
     return res.status(200).json({ outcome: 'ok', url: co.url, ref, checkout: co.id, amount: price, currency: CURRENCY });
