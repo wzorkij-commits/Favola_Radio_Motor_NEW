@@ -44,11 +44,15 @@
     {
       "source": "/api/align",
       "destination": "/api/record?__r=align"
+    },
+    {
+      "source": "/api/art-cron",
+      "destination": "/api/art?cron=1"
     }
   ],
   "crons": [
     {
-      "path": "/api/art?cron=1",
+      "path": "/api/art-cron",
       "schedule": "*/10 * * * *"
     }
   ]
