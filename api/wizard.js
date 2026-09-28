@@ -24,15 +24,24 @@ export default async function handler(req, res) {
     const clean = answers.map(a => clip(a, 300));
 
     let out = null, why = '';
-    for (let attempt = 1; attempt <= 2 && !out; attempt++) {
+    // Короткий ответ модели выглядит как тезисы, а не как сказка. Проверяем длину
+    // и при необходимости просим переписать полнее (до трёх попыток).
+    const MIN_TOTAL = lang === 'en' ? 900 : 1000, MIN_PANEL = 150;
+    for (let attempt = 1; attempt <= 3 && !out; attempt++) {
       try {
+        const retryNote = attempt > 1 && why === 'short'
+          ? (lang === 'en' ? '\n\nYour previous draft was far too short, like an outline. Write the full tale: every paragraph three to five sentences, about 300 words in total.'
+                           : '\n\nYour previous draft was far too short, like an outline. Write the full tale in Russian: every paragraph three to five sentences, about 300 words in total.')
+          : '';
         const raw = await generateText({
-          system: WIZARD_SYSTEM, prompt: buildWizardPrompt(clean, lang),
-          maxTokens: 3000, temperature: attempt === 1 ? 0.85 : 0.5
+          system: WIZARD_SYSTEM, prompt: buildWizardPrompt(clean, lang) + retryNote,
+          maxTokens: 4000, temperature: attempt === 1 ? 0.85 : 0.6
         });
         const j = jsonFrom(raw);
         const panels = Array.isArray(j.panels) ? j.panels.map(p => clip(p, 900)).filter(Boolean) : [];
         const scenes = Array.isArray(j.scenes) ? j.scenes : [];
+        const total = panels.join(' ').length, avg = panels.length ? total / panels.length : 0;
+        if (panels.length >= 3 && scenes.length >= 3 && (total < MIN_TOTAL || avg < MIN_PANEL) && attempt < 3) { why = 'short'; continue; }
         if (panels.length >= 3 && scenes.length >= 3) {
           out = {
             title: clip(j.title, 60) || clean[0],
