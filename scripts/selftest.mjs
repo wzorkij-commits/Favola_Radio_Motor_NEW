@@ -12,7 +12,7 @@ function check(name, fn) {
 }
 
 console.log('модули api/*.js загружаются');
-const apiFiles = ['account', 'auth', 'pay', 'ping', 'record', 'image', 'hero', 'voice', 'library', 'wizard', 'stories', 'art'];
+const apiFiles = ['account', 'auth', 'pay', 'ping', 'record', 'image', 'hero', 'voice', 'library', 'wizard', 'stories', 'art', 'beta'];
 for (const f of apiFiles) {
   try { await import('../api/' + f + '.js'); ok++; console.log('  ok   загрузился api/' + f + '.js'); }
   catch (e) { fail++; console.log('  FAIL api/' + f + '.js не загрузился -> ' + e.message); }
@@ -582,6 +582,52 @@ await (async () => {
     assert.equal(r2._s, 404, 'чужой по-прежнему не открывает');
     ok++; console.log('  ok   сказка из своего списка открывается с нового устройства, чужому — нет');
   } catch (e) { fail++; console.log('  FAIL сказка из своего списка открывается с нового устройства  -> ' + e.message); }
+})();
+
+console.log('\nзакрытая бета: список ожидания, приглашения, вход');
+await (async () => {
+  const S = await import('../lib/store.js'); const B = await import('../lib/beta.js');
+  const sent = []; const realFetch = global.fetch; process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test';
+  global.fetch = async (url, opts) => { if (String(url).includes('resend')) { sent.push(JSON.parse(opts.body)); return { ok:true, status:200, text: async () => '{"id":"x"}' }; } return realFetch(url, opts); };
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const otp = (await import('../lib/h-otp.js')).default;
+  const call = async (h, req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; await h(req, res); return res; };
+  try {
+    delete process.env.BETA_OPEN;
+    await t('чужая почта не получает код — приложение предлагает список ожидания', async () => {
+      const r = await call(otp, { method:'POST', body:{ device:'bd1', email:'new@x.com' } });
+      assert.equal(r._b.outcome, 'beta');
+    });
+    await t('заявка в список: письмо «вы в списке» и место в очереди; повтор не дублирует', async () => {
+      const n0 = sent.length;
+      const a = await B.join({ email:'new@x.com', who:'для внуков', lang:'ru' }); assert.equal(a.outcome, 'waiting'); assert.equal(a.position, 1);
+      assert.equal(sent.length, n0 + 1); assert.match(sent[sent.length-1].subject, /в списке/);
+      await B.join({ email:'second@x.com', lang:'en' });
+      const again = await B.join({ email:'new@x.com' }); assert.equal(again.position, 1); assert.equal(sent.length, n0 + 2);
+      const all = await B.listAll(); assert.equal(all.waiting, 2);
+    });
+    await t('кто уже заходил раньше, входит без приглашения', async () => {
+      await S.set(S.emailKey('old@x.com'), { user: 'u-old' });
+      assert.equal(await B.allowed('old@x.com'), true);
+      assert.equal((await call(otp, { method:'POST', body:{ device:'bd2', email:'old@x.com' } }))._b.outcome, 'sent');
+    });
+    await t('владелец приглашает: письмо со ссылкой, код приходит, после входа — «вошёл»', async () => {
+      const own = S.blankUser('own-dev'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+      const h = (await import('../api/beta.js')).default;
+      const denied = await call(h, { method:'POST', body:{ act:'invite-next', device:'bd1', n:1 } }); assert.equal(denied._s, 403);
+      const r = await call(h, { method:'POST', body:{ act:'invite-next', device:'own-dev', n:1 } });
+      assert.deepEqual(r._b.invited, ['new@x.com']);
+      assert.match(sent[sent.length-1].html, /app\.html\?email=new%40x\.com/);
+      assert.equal((await call(otp, { method:'POST', body:{ device:'bd1', email:'new@x.com' } }))._b.outcome, 'sent');
+      const code = (await S.get('fav:otp:new@x.com')).code;
+      assert.equal((await call(otp, { method:'POST', body:{ device:'bd1', email:'new@x.com', code } }))._b.outcome, 'ok');
+      const all = await B.listAll(); assert.equal(all.joined, 1); assert.equal(all.waiting, 1);
+      const list = await call(h, { method:'GET', query:{ act:'list', device:'own-dev' } }); assert.equal(list._b.rows.length, 2);
+    });
+    await t('аварийный выключатель BETA_OPEN=1 открывает вход всем', async () => {
+      process.env.BETA_OPEN = '1'; assert.equal(await B.allowed('anyone@x.com'), true); delete process.env.BETA_OPEN;
+    });
+  } finally { global.fetch = realFetch; }
 })();
 
 console.log(`\n${ok} прошло, ${fail} провалено`);

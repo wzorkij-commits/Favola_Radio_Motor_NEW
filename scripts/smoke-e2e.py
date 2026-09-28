@@ -16,6 +16,7 @@ threading.Thread(target=httpd.serve_forever, daemon=True).start()
 JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
 
 IMG_TRIES = {}
+BETA_JOINS = []
 ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
 STATE = {'email': None}
 STORY_STORE = {}
@@ -39,7 +40,10 @@ def api(route):
         if body.get('code'):
             STATE['email'] = body.get('email')
             return J({'outcome':'ok', 'email': STATE['email'], 'made':0, 'canMake':True})
+        if body.get('email') == 'stranger@x.com': return J({'outcome':'beta', 'email':'stranger@x.com'})
         return J({'outcome':'sent', 'minutes':15})
+    if path == 'beta' and m == 'POST' and body.get('act') == 'join':
+        BETA_JOINS.append(body); return J({'outcome':'waiting', 'position': len(BETA_JOINS)})
     if path == 'account': return J({'email': STATE['email'],'made':0,'canMake':True,'canRecord':True,'freeLeft':2,'radioShelf':[]})
     if path == 'spend': return J({'ok': STATE.get('spend_ok', True), 'made': 1, 'canMake': STATE.get('spend_ok', True), 'canRecord': STATE.get('spend_ok', True), 'why': 'free' if STATE.get('spend_ok', True) else 'empty'})
     if path == 'align':
@@ -155,7 +159,12 @@ page.add_init_script('window.ART_POLL_MS = 150;')
 page.route('https://favola-radio.vercel.app/**', api)
 page.route('https://accounts.google.com/**', lambda r: r.abort())
 page.goto(f'http://localhost:{PORT}/index.html?ref=abc'); page.wait_for_timeout(900)
-check('адрес сайта сразу открывает приложение (без заходной страницы), хвост адреса сохраняется', page.url.endswith('/app.html?ref=abc') or '/app.html?ref=abc' in page.url, page.url)
+check('новый посетитель видит страницу беты с формой списка ожидания', '/index.html' in page.url and page.is_visible('#email') and page.is_visible('#go'), page.url)
+page.fill('#email', 'land@x.com'); page.click('#go'); page.wait_for_timeout(700)
+check('заявка с сайта уходит в список ожидания, человек видит своё место', len(BETA_JOINS) == 1 and BETA_JOINS[0].get('email') == 'land@x.com' and ('№ 1' in page.inner_text('#note') or '#1' in page.inner_text('#note')), (BETA_JOINS, page.inner_text('#note')))
+page.evaluate("localStorage.setItem('favrad-device','dev-returning')")
+page.goto(f'http://localhost:{PORT}/index.html?ref=abc'); page.wait_for_timeout(900)
+check('кто уже пользовался приложением, сразу попадает в приложение, хвост адреса сохраняется', '/app.html?ref=abc' in page.url, page.url)
 page.goto(f'http://localhost:{PORT}/app.html'); page.wait_for_timeout(600)
 
 cur = lambda: page.evaluate("()=>{const s=document.querySelector('.screen[data-active]');return s?s.dataset.screen:null}")
@@ -177,6 +186,10 @@ page.click('#themeToggle'); page.wait_for_timeout(100)
 check('ночной режим выключился обратно', page.evaluate("()=>document.documentElement.getAttribute('data-theme')") == 'day')
 page.click('.langpick button[data-lang=ru]'); page.wait_for_timeout(400)
 check('после выбора языка — экран входа (почта настроена, аккаунт без email)', cur() == 'signin', cur())
+page.fill('#email', 'stranger@x.com'); page.click('#sendCode'); page.wait_for_timeout(400)
+check('неприглашённая почта: код не просим, предлагаем список ожидания', page.is_visible('#betaWrap') and page.is_hidden('#codeWrap'))
+page.click('#betaJoin'); page.wait_for_timeout(500)
+check('из приложения тоже можно встать в список', any(j.get('email') == 'stranger@x.com' for j in BETA_JOINS) and 'списке' in page.inner_text('#betaNote'), page.inner_text('#betaNote'))
 page.fill('#email', 'roditel@example.com'); page.click('#sendCode'); page.wait_for_timeout(300)
 check('после отправки кода показано поле кода', page.is_visible('#codeWrap'))
 page.fill('#code', '123456'); page.click('#checkCode'); page.wait_for_timeout(400)
@@ -187,7 +200,9 @@ page.click('.screen[data-active] .topbar .themebtn'); page.wait_for_timeout(100)
 check('день/ночь переключается с развилки', page.evaluate("()=>document.documentElement.getAttribute('data-theme')") == 'night')
 page.click('.screen[data-active] .topbar .themebtn'); page.wait_for_timeout(100)
 check('ночной режим — основной, если человек сам не выбирал', page.evaluate("()=>{const s=localStorage.getItem('favrad-theme');localStorage.removeItem('favrad-theme');applyTheme();const t=document.documentElement.getAttribute('data-theme');localStorage.setItem('favrad-theme',s);applyTheme();return t}") == 'night')
-check('развилка встречает по времени суток', any(w in page.inner_text('#helloTitle') for w in ['Доброе','Добрый','Доброй']), page.inner_text('#helloTitle'))
+check('развилка встречает «Привет»', page.inner_text('#helloTitle') == 'Привет', page.inner_text('#helloTitle'))
+check('на карточке «Записать сказку» только заголовок, без пояснения', page.locator('#goRecord .hsub').count() == 0 and page.inner_text('#goRecord .htitle') != '')
+check('раздел последних сказок называется «Записанные сказки»', 'Записанные сказки' in page.inner_text('.screen[data-active]'))
 page.click('#goShelf'); page.wait_for_timeout(300)
 check('на остальных экранах видна кликабельная надпись Favola Radio', page.is_visible('.screen[data-active] .brandbar img.wm-day'))
 page.click('.screen[data-active] .brandbar'); page.wait_for_timeout(150)
