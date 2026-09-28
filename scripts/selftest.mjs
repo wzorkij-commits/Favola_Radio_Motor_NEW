@@ -483,5 +483,29 @@ console.log('\nпропуск на сказку: без списания ска�
   check('аварийный выключатель RADIO_OPEN=1 открывает адреса', () => {});
 }
 
+console.log('\n«Придумать вместе»: сказка, а не тезисы');
+await (async () => {
+  const name = 'короткий ответ модели (тезисы) отправляется на переписывание, в итоге полная сказка';
+  const realFetch = global.fetch; process.env.RADIO_OPEN = '1'; process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test';
+  let calls = 0, sawNote = false;
+  const draft = (len) => JSON.stringify({ title:'Женя', panels: Array(4).fill(0).map((_, i) => 'Жил-был жираф Женя. '.repeat(len) + i),
+    cast:[{name:'Женя', look:'a shy giraffe'}], world:'Lisbon', scenes: Array(4).fill({brief:'a giraffe', shows:['giraffe']}), questions:['Что чувствовал Женя?'] });
+  global.fetch = async (url, opts) => {
+    if (String(url).includes('anthropic')) { calls++; const b = JSON.parse(opts.body); if (/far too short/.test(b.messages[0].content)) sawNote = true;
+      const text = calls === 1 ? draft(1) : draft(16);
+      return { ok:true, json: async () => ({ content:[{ text }], usage:{ input_tokens:10, output_tokens:10 } }) }; }
+    return realFetch(url, opts);
+  };
+  try {
+    const h = (await import('../api/wizard.js')).default;
+    const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} };
+    await h({ method:'POST', headers:{}, query:{}, body:{ answers:['Женя','жираф','любви','застенчивость','Коля-слон','Португалия','грубит','становится добрым'], lang:'ru' } }, res);
+    assert.equal(res._s, 200); assert.equal(calls, 2); assert.ok(sawNote, 'нет просьбы переписать полнее');
+    assert.ok(res._b.panels.join(' ').length > 1000, 'текст короткий');
+    ok++; console.log('  ok   ' + name);
+  } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
+  finally { global.fetch = realFetch; }
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);
