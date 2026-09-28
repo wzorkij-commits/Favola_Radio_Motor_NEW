@@ -483,28 +483,39 @@ console.log('\nпропуск на сказку: без списания ска�
   check('аварийный выключатель RADIO_OPEN=1 открывает адреса', () => {});
 }
 
-console.log('\n«Придумать вместе»: сказка, а не тезисы');
+console.log('\n«Придумать вместе»: сначала писатель (проза), потом художник (план картинок)');
 await (async () => {
-  const name = 'короткий ответ модели (тезисы) отправляется на переписывание, в итоге полная сказка';
   const realFetch = global.fetch; process.env.RADIO_OPEN = '1'; process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test';
-  let calls = 0, sawNote = false;
-  const draft = (len) => JSON.stringify({ title:'Женя', panels: Array(4).fill(0).map((_, i) => 'Жил-был жираф Женя. '.repeat(len) + i),
-    cast:[{name:'Женя', look:'a shy giraffe'}], world:'Lisbon', scenes: Array(4).fill({brief:'a giraffe', shows:['giraffe']}), questions:['Что чувствовал Женя?'] });
+  const calls = [];
+  const para = (n) => 'Жил-был светящийся человечек Люмен. Он жил на холме, где пахло сливами. «Хочу в небо!» — говорил он коню. Конь фыркал и не пускал. Люмен вздыхал и снова смотрел на облака. '.repeat(n);
+  const talePlain = (k) => 'Люмен и небо\n\n' + Array(5).fill(0).map(() => para(k)).join('\n\n');
   global.fetch = async (url, opts) => {
-    if (String(url).includes('anthropic')) { calls++; const b = JSON.parse(opts.body); if (/far too short/.test(b.messages[0].content)) sawNote = true;
-      const text = calls === 1 ? draft(1) : draft(16);
-      return { ok:true, json: async () => ({ content:[{ text }], usage:{ input_tokens:10, output_tokens:10 } }) }; }
-    return realFetch(url, opts);
+    if (!String(url).includes('anthropic')) return realFetch(url, opts);
+    const b = JSON.parse(opts.body); const writer = /children's author/.test(b.system); calls.push(writer ? 'tale' : 'plan');
+    const text = writer
+      ? (calls.filter(c => c === 'tale').length === 1 ? 'Люмен\n\nЛюмен смотрит на небо.\n\nКонь мешает.\n\nЛюмен летит.' : talePlain(2))
+      : JSON.stringify({ cast:[{name:'Люмен', look:'a small glowing boy'}], world:'hills', scenes: Array(5).fill({ brief:'Lumen looks at the sky', shows:['sky'] }), questions:['Что чувствовал Люмен?','А ты бы полетел?','Как зовут коня?','Что было дальше?','Какой был ферзь?'] });
+    return { ok:true, json: async () => ({ content:[{ text }], usage:{ input_tokens:10, output_tokens:10 }, stop_reason:'end_turn' }) };
   };
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
   try {
     const h = (await import('../api/wizard.js')).default;
     const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} };
-    await h({ method:'POST', headers:{}, query:{}, body:{ answers:['Женя','жираф','любви','застенчивость','Коля-слон','Португалия','грубит','становится добрым'], lang:'ru' } }, res);
-    assert.equal(res._s, 200); assert.equal(calls, 2); assert.ok(sawNote, 'нет просьбы переписать полнее');
-    assert.ok(res._b.panels.join(' ').length > 1000, 'текст короткий');
-    ok++; console.log('  ok   ' + name);
-  } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
-  finally { global.fetch = realFetch; }
+    await h({ method:'POST', headers:{}, query:{ trace:'1' }, body:{ answers:['Люмен','волшебное существо','полетать','конь','ферзь','Тютеляндия','слива','договорился'], lang:'ru' } }, res);
+    await t('короткий черновик писателя отправлен на переписывание, затем — план картинок', async () => { assert.deepEqual(calls, ['tale','tale','plan']); });
+    await t('страницы — абзацы прозы писателя, а не подписи к картинкам', async () => {
+      assert.equal(res._s, 200); assert.equal(res._b.panels.length, 5); assert.ok(res._b.panels.every(p => p.length > 150), res._b.panels.map(p => p.length).join(','));
+      assert.equal(res._b.title, 'Люмен и небо'); assert.ok(!res._b.source);
+    });
+    await t('на каждый абзац — свой кадр, герои и вопросы от художника', async () => {
+      assert.equal(res._b.scenes.length, 5); assert.equal(res._b.cast[0].name, 'Люмен'); assert.equal(res._b.questions.length, 5);
+    });
+    const { parseTale } = await import('../api/wizard.js');
+    await t('разбор текста писателя: название и абзацы, лишние обёртки убираются', async () => {
+      const p = parseTale('```\n**Люмен и небо**\n\nПервый абзац.\nПродолжение.\n\nВторой абзац.\n```');
+      assert.equal(p.title, 'Люмен и небо'); assert.deepEqual(p.paragraphs, ['Первый абзац. Продолжение.', 'Второй абзац.']);
+    });
+  } finally { global.fetch = realFetch; }
 })();
 
 console.log('\nкартинки рисует сервер: задание, повторы, дорисовка, сказка');
