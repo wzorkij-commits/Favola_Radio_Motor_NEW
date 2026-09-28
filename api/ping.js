@@ -14,7 +14,7 @@ import { PLANS } from '../lib/plans.js';
 import { LIBRARY } from '../data/library.js';
 import { BLOB_READY, putFile, readFile, deleteFiles, viewUrl, storeAccess } from '../lib/blob.js';
 
-const NEED = ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_RU'];
+const NEED = ['ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'ELEVENLABS_API_KEY'];   // ELEVENLABS_VOICE_RU приложению не нужна (озвучка текстом не используется)
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
