@@ -630,5 +630,40 @@ await (async () => {
   } finally { global.fetch = realFetch; }
 })();
 
+console.log('\nдонат: оплата, письмо «спасибо», список для владельца');
+await (async () => {
+  const S = await import('../lib/store.js'); const sent = [];
+  const realFetch = global.fetch; process.env.SUMUP_API_KEY = process.env.SUMUP_API_KEY || 'test'; process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test';
+  let status = 'PENDING';
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('resend')) { sent.push(JSON.parse(opts.body)); return { ok:true, status:200, text: async () => '{"id":"x"}' }; }
+    if (u.includes('sumup') && u.includes('/me')) return { ok:true, status:200, json: async () => ({ merchant_profile:{ merchant_code:'M1' } }), text: async () => '{"merchant_profile":{"merchant_code":"M1"}}' };
+    if (u.includes('sumup') && opts && opts.method === 'POST') return { ok:true, status:200, json: async () => ({ id:'co1', hosted_checkout_url:'https://pay.sumup.com/co1' }), text: async () => '{"id":"co1","hosted_checkout_url":"https://pay.sumup.com/co1"}' };
+    if (u.includes('sumup')) return { ok:true, status:200, json: async () => ({ id:'co1', status }), text: async () => JSON.stringify({ id:'co1', status }) };
+    return realFetch(url, opts);
+  };
+  const call = async (h, req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; await h(req, res); return res; };
+  try {
+    const pay = (await import('../api/pay.js')).default;
+    const r1 = await call(pay, { method:'POST', body:{ device:'don-1', plan:'support', amount:10, email:'friend@x.com', name:'Аня', message:'Удачи!', back:'https://www.favola.space/donate.html?done={REF}' } });
+    assert.equal(r1._b.outcome, 'ok', JSON.stringify(r1._b)); assert.match(r1._b.url, /sumup/);
+    const r2 = await call(pay, { method:'POST', query:{ __r:'pay-status' }, body:{ device:'don-1', ref:r1._b.ref } });
+    assert.equal(r2._b.paid, false);
+    status = 'PAID';
+    const r3 = await call(pay, { method:'POST', query:{ __r:'pay-status' }, body:{ device:'don-1', ref:r1._b.ref } });
+    assert.equal(r3._b.paid, true); assert.equal(r3._b.amount, 10);
+    assert.ok(sent.some(m => /спасибо за поддержку/i.test(m.subject) && m.to[0] === 'friend@x.com'), 'письмо «спасибо»');
+    const list = await S.get('rad:donate:list'); assert.equal(list.length, 1); assert.equal(list[0].name, 'Аня'); assert.equal(list[0].message, 'Удачи!');
+    await call(pay, { method:'POST', query:{ __r:'pay-status' }, body:{ device:'don-1', ref:r1._b.ref } });
+    assert.equal((await S.get('rad:donate:list')).length, 1, 'повторная проверка не дублирует');
+    const own = S.blankUser('own-don'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+    const b = await call((await import('../api/beta.js')).default, { method:'GET', query:{ act:'list', device:'own-don' } });
+    assert.equal(b._b.donatedTotal, 10);
+    ok++; console.log('  ok   донат 10 €: оплата SumUp → письмо «спасибо» → в списке владельца, без дублей');
+  } catch (e) { fail++; console.log('  FAIL донат  -> ' + e.message); }
+  finally { global.fetch = realFetch; }
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

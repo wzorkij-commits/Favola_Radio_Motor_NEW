@@ -17,6 +17,7 @@ JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP////////////////
 
 IMG_TRIES = {}
 BETA_JOINS = []
+DONATE = []
 ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
 STATE = {'email': None}
 STORY_STORE = {}
@@ -49,6 +50,8 @@ def api(route):
     if path == 'align':
         n = len(body.get('weights') or [])
         return J({'scenes': [{'from': i, 'to': i, 'start': i, 'end': i+1} for i in range(n)]})
+    if path == 'pay' and body.get('plan') == 'support':
+        DONATE.append(body); return J({'outcome':'ok', 'url': 'about:blank', 'ref':'r-don'})
     if path == 'pay':
         return J({'outcome': 'ok', 'url': 'http://127.0.0.1:%d/paid.html?ref=x' % PORT, 'ref': 'x', 'checkout': 'c1', 'amount': 9.99, 'currency': 'EUR'})
     if path == 'pay-status': return J({'paid': True, 'made': 0, 'canMake': True})
@@ -162,6 +165,10 @@ page.goto(f'http://localhost:{PORT}/index.html?ref=abc'); page.wait_for_timeout(
 check('новый посетитель видит страницу беты с формой списка ожидания', '/index.html' in page.url and page.is_visible('#email') and page.is_visible('#go'), page.url)
 page.fill('#email', 'land@x.com'); page.click('#go'); page.wait_for_timeout(700)
 check('заявка с сайта уходит в список ожидания, человек видит своё место', len(BETA_JOINS) == 1 and BETA_JOINS[0].get('email') == 'land@x.com' and ('№ 1' in page.inner_text('#note') or '#1' in page.inner_text('#note')), (BETA_JOINS, page.inner_text('#note')))
+page.goto(f'http://localhost:{PORT}/donate.html'); page.wait_for_timeout(700)
+page.click('.amts button[data-a="25"]'); page.fill('#name', 'Аня'); page.fill('#email', 'anya@x.com'); page.fill('#msg', 'Удачи!')
+page.click('#go'); page.wait_for_timeout(700)
+check('страница доната: 25 € с именем, почтой и пожеланием уходит в оплату как поддержка', len(DONATE) == 1 and DONATE[0].get('amount') == 25 and DONATE[0].get('name') == 'Аня' and DONATE[0].get('email') == 'anya@x.com' and '{REF}' in DONATE[0].get('back',''), DONATE)
 page.evaluate("localStorage.setItem('favrad-device','dev-returning')")
 page.goto(f'http://localhost:{PORT}/index.html?ref=abc'); page.wait_for_timeout(900)
 check('кто уже пользовался приложением, сразу попадает в приложение, хвост адреса сохраняется', '/app.html?ref=abc' in page.url, page.url)
