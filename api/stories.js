@@ -15,9 +15,14 @@ import { isBlobUrl } from '../lib/record.js';
 const key = id => 'rad:story:' + id;
 const MAX_PER_USER = 200;
 
+// Сказка «своя», если её записали с этого устройства, под этой почтой/Google-входом
+// или если она просто лежит в списке сказок этого человека. Последнее важно: при
+// переезде на новый адрес (favola.space) у телефона новый ключ устройства, а сказки,
+// записанные до входа по почте, помнят только старый ключ — полка их показывала,
+// а открыть не давала («не найдено»).
 const mine = (rec, device, u) =>
   rec && (rec.device === device || (u.google && rec.google === u.google) ||
-          (u.email && rec.email === u.email));
+          (u.email && rec.email === u.email) || (u.radio_made || []).includes(rec.id));
 
 export default async function handler(req, res) {
   cors(res);
