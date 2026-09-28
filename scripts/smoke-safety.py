@@ -78,6 +78,10 @@ def api(route):
                   'questions': ['В1?', 'В2?', 'В3?']})
     if path == 'hero': return J({'sheet': None})
     if path == 'image': return J({'image': JPG})
+    if path == 'art':
+        if m == 'POST' and body.get('act') == 'attach': return J({'ok': True})
+        if m == 'POST': S['art_n'] = len(body.get('scenes') or []); return J({'job': 'aj_s', 'items': S['art_n']})
+        return J({'job': 'aj_s', 'items': [{'state': 'done', 'url': JPG} for _ in range(S.get('art_n', 0))], 'done': True})
     if path == 'align':
         n = len(body.get('weights') or []); return J({'scenes': [{'start': i, 'end': i + 1} for i in range(n)]})
     if path == 'library' and m == 'GET':
@@ -122,6 +126,7 @@ page = ctx.new_page(); errs = []
 page.on('pageerror', lambda e: errs.append(str(e)[:200]))
 DIALOG = {'accept': False}
 page.on('dialog', lambda d: d.accept() if DIALOG['accept'] else d.dismiss())
+page.add_init_script('window.ART_POLL_MS = 150;')
 page.add_init_script(FAKE_MEDIA)
 page.route('https://favola-radio.vercel.app/**', api)
 page.route('https://vercel.com/api/blob**', blob)

@@ -12,7 +12,7 @@ function check(name, fn) {
 }
 
 console.log('модули api/*.js загружаются');
-const apiFiles = ['account', 'auth', 'pay', 'ping', 'record', 'image', 'hero', 'voice', 'library', 'wizard', 'stories'];
+const apiFiles = ['account', 'auth', 'pay', 'ping', 'record', 'image', 'hero', 'voice', 'library', 'wizard', 'stories', 'art'];
 for (const f of apiFiles) {
   try { await import('../api/' + f + '.js'); ok++; console.log('  ok   загрузился api/' + f + '.js'); }
   catch (e) { fail++; console.log('  FAIL api/' + f + '.js не загрузился -> ' + e.message); }
@@ -505,6 +505,72 @@ await (async () => {
     ok++; console.log('  ok   ' + name);
   } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   finally { global.fetch = realFetch; }
+})();
+
+console.log('\nкартинки рисует сервер: задание, повторы, дорисовка, сказка');
+await (async () => {
+  const A = await import('../lib/art.js'); const S = await import('../lib/store.js');
+  A._fastForTests();
+  const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+  let calls = 0;
+  A._setGenForTests(async (prompt) => { calls++; if (/scene-fail/.test(prompt)) throw new Error('google 503'); if (calls === 2) throw new Error('временный сбой'); return PNG; });
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  await t('задание рисует лист героя и все кадры, временный сбой лечится повтором', async () => {
+    const job = A.newJob({ device:'d1', cast:'Ася: девочка', world:'лес', scenes:[{brief:'a'},{brief:'b'},{brief:'c'}] });
+    await S.set(A.jobKey(job.id), job); await A.markPending(job.id, true);
+    const j = await A.processJob(job.id);
+    assert.equal(j.hero.state, 'done'); assert.deepEqual(j.items.map(x => x.state), ['done','done','done']);
+    assert.ok(!((await S.get('rad:art:pending')) || []).includes(job.id), 'законченное задание снято с расписания');
+    const pub = await A.publicJob(j); assert.equal(pub.done, true); assert.ok(pub.items.every(x => x.url));
+  });
+  await t('кадр, который не рисуется, остаётся в расписании и не ломает остальные', async () => {
+    const job = A.newJob({ device:'d1', cast:'', scenes:[{brief:'ok'},{brief:'scene-fail'}] });
+    await S.set(A.jobKey(job.id), job); await A.markPending(job.id, true);
+    const j = await A.processJob(job.id);
+    assert.equal(j.hero.state, 'skip'); assert.equal(j.items[0].state, 'done'); assert.equal(j.items[1].state, 'retry');
+    assert.equal(j.items[1].tries, A.MAX_TRIES); assert.match(j.items[1].err, /google 503/);
+    assert.ok(((await S.get('rad:art:pending')) || []).includes(job.id), 'в расписании');
+  });
+  await t('расписание дорисовывает позже, и картинка сама встаёт в сохранённую сказку', async () => {
+    const job = A.newJob({ device:'d2', cast:'', scenes:[{brief:'x'},{brief:'scene-fail'}] });
+    await S.set(A.jobKey(job.id), job); await A.markPending(job.id, true);
+    await A.processJob(job.id);
+    await S.set('rad:story:st1', { id:'st1', art:[null, null] });
+    const j0 = await S.get(A.jobKey(job.id)); j0.storyId = 'st1'; j0.updated = Date.now() - 120000; await S.set(A.jobKey(job.id), j0);
+    await A.copyIntoStory(j0);
+    A._setGenForTests(async () => PNG);                       // Google снова работает
+    const pass = await A.cronPass(10);
+    assert.ok(pass.some(p => p.id === job.id && p.done === 2), JSON.stringify(pass));
+    const rec = await S.get('rad:story:st1'); assert.ok(rec.art[0] && rec.art[1], 'обе картинки в сказке');
+  });
+  await t('/api/art: без пропуска 402, с RADIO_OPEN задание заводится; расписание — только для cron', async () => {
+    const h = (await import('../api/art.js')).default;
+    const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; await h(req, res); return res; };
+    const prev = process.env.RADIO_OPEN; delete process.env.RADIO_OPEN;
+    const r1 = await call({ method:'POST', body:{ device:'d3', scenes:[{brief:'a'}] } }); assert.equal(r1._s, 402);
+    process.env.RADIO_OPEN = '1';
+    const r2 = await call({ method:'POST', body:{ device:'d3', scenes:[{brief:'a'}] } }); assert.equal(r2._s, 200); assert.match(r2._b.job, /^aj_/);
+    const r3 = await call({ method:'GET', query:{ job: r2._b.job } }); assert.equal(r3._s, 200); assert.equal(r3._b.items.length, 1);
+    const r4 = await call({ method:'GET', query:{ cron:'1' }, headers:{ 'user-agent':'curl' } }); assert.equal(r4._s, 401);
+    const r5 = await call({ method:'GET', query:{ cron:'1' }, headers:{ 'user-agent':'vercel-cron/1.0' } }); assert.equal(r5._s, 200);
+    if (prev === undefined) delete process.env.RADIO_OPEN; else process.env.RADIO_OPEN = prev;
+  });
+})();
+
+console.log('\nсказки на полке открываются и после смены адреса');
+await (async () => {
+  const S = await import('../lib/store.js');
+  const h = (await import('../api/stories.js')).default;
+  const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; await h(req, res); return res; };
+  try {
+    await S.set('rad:story:old1', { id:'old1', device:'old-device', title:'Письмо Нади', art:[], audio:{}, done:true });
+    const u = S.blankUser('new-device'); u.radio_made = ['old1']; await S.saveUser(u);
+    const r = await call({ method:'GET', query:{ device:'new-device', id:'old1' } });
+    assert.equal(r._s, 200, JSON.stringify(r._b)); assert.equal(r._b.title, 'Письмо Нади');
+    const r2 = await call({ method:'GET', query:{ device:'stranger', id:'old1' } });
+    assert.equal(r2._s, 404, 'чужой по-прежнему не открывает');
+    ok++; console.log('  ok   сказка из своего списка открывается с нового устройства, чужому — нет');
+  } catch (e) { fail++; console.log('  FAIL сказка из своего списка открывается с нового устройства  -> ' + e.message); }
 })();
 
 console.log(`\n${ok} прошло, ${fail} провалено`);

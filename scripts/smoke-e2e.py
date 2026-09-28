@@ -15,6 +15,8 @@ threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
 JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='
 
+IMG_TRIES = {}
+ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
 STATE = {'email': None}
 STORY_STORE = {}
 LIB_URLS = []
@@ -63,6 +65,16 @@ def api(route):
                    'questions':['Вопрос один?','Вопрос два?','Вопрос три?']})
     if path == 'hero': return J({'look':'x','sheet': JPG})
     if path == 'image': return J({'image': JPG})
+    if path == 'art':
+        if m == 'POST' and body.get('act') == 'attach':
+            ART['attached'].append(body.get('storyId')); return J({'ok': True})
+        if m == 'POST':
+            ART['n'] = len(body.get('scenes') or []); ART['polls'] = 0; ART['starts'] += 1
+            return J({'job': 'aj_test', 'items': ART['n']})
+        ART['polls'] += 1
+        # первый опрос: вторая картинка ещё рисуется; дальше — всё готово
+        items = [{'state': ('wait' if (ART['polls'] == 1 and i == 1) else 'done'), 'url': JPG} for i in range(ART['n'])]
+        return J({'job': 'aj_test', 'items': items, 'done': all(x['state'] == 'done' for x in items)})
     if path == 'clean': return J({'audio': 'data:audio/webm;base64,AAAA', 'mime':'audio/webm', 'bytes':4})
     if path == 'transcribe':
         return J({'language':'ru','text':'Раз. Два. Три.',
@@ -139,6 +151,7 @@ page = ctx.new_page(); errs = []
 page.on('pageerror', lambda e: errs.append(str(e)[:200]))
 page.on('dialog', lambda d: d.dismiss())  # на случай alert() — не даём тесту зависнуть
 page.add_init_script(FAKE_MEDIA)
+page.add_init_script('window.ART_POLL_MS = 150;')
 page.route('https://favola-radio.vercel.app/**', api)
 page.route('https://accounts.google.com/**', lambda r: r.abort())
 page.goto(f'http://localhost:{PORT}/index.html?ref=abc'); page.wait_for_timeout(900)
@@ -217,6 +230,10 @@ check('название сказки из разбора на сцены', 'За
 check('подпись под картинкой — очищенный текст, а не сырая расшифровка', 'чистый' in page.inner_text('#storyTxt'))
 check('у записанной своим голосом сказки видна кнопка воспроизведения',
       page.evaluate("()=>getComputedStyle(document.getElementById('playBtn')).visibility") == 'visible')
+page.wait_for_timeout(600)
+check('сохранённая сказка привязана к заданию — дорисованное встанет в неё само', len(ART['attached']) >= 1, ART['attached'])
+ph = page.evaluate("()=>{const a=CURRENT_STORY.art[0]; CURRENT_STORY.art[0]=null; renderPage(); const src=document.getElementById('storyArt').src; CURRENT_STORY.art[0]=a; renderPage(); return src.slice(0,26)}")
+check('пока картинки нет — вместо пустого места плитка азулежу', ph.startswith('data:image/svg+xml'), ph)
 r = page.evaluate("()=>{const b=document.querySelector('.storypage .art').getBoundingClientRect();return b.width/b.height}")
 check('рамка картинки ровно 4:3', abs(r - 4/3) < 0.02, r)
 check('на сказке есть день/ночь в шапке и «Режим сна» под плеером', page.is_visible('.screen[data-active] .topbar .themebtn') and page.is_visible('#storySleep'))
@@ -274,6 +291,7 @@ check('только что сохранённая сказка сразу вид
 print('конструктор «Придумать вместе»')
 page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(200)
 check('«Меню» вернуло на развилку', cur() == 'hub', cur())
+ART_STARTS_BEFORE = ART['starts']
 page.click('#goWizard'); page.wait_for_timeout(200)
 check('сначала — выбор стиля картинок (конструктор)', cur() == 'style', cur())
 page.click('.stylecard >> nth=1'); page.wait_for_timeout(150)
@@ -288,10 +306,12 @@ for i in range(5):
     page.click('#wizNext'); page.wait_for_timeout(150)
 check('дошли до восьмого вопроса', page.evaluate("()=>document.querySelectorAll('.wizprog i.on').length") == 8)
 page.fill('.wizstep input', 'справился'); page.wait_for_timeout(100)
-page.click('#wizNext'); page.wait_for_timeout(1200)
+page.click('#wizNext'); page.wait_for_timeout(6500)   # с повторами после сбоя картинки
 check('после восьми ответов и рисования — телесуфлёр, чтобы прочитать вслух и записать',
       cur() == 'telep', cur())
 check('в телесуфлёре — текст только что собранной сказки', page.inner_text('#tpText') != '')
+check('картинки заказаны одним заданием на сервере, телефон только спрашивает «готово?»', ART['starts'] == ART_STARTS_BEFORE + 1 and ART['polls'] >= 2, ART)
+check('все картинки на месте — предупреждения нет', page.is_hidden('#tpArtNote'))
 check('запись и тут не идёт сама — видна кнопка «Записать»',
       page.is_visible('#tpRecordBtn') and page.is_hidden('#tpRecIndicator'))
 page.click('#tpRecordBtn'); page.wait_for_timeout(150)
