@@ -54,7 +54,7 @@ check('grantFor(year) даёт безлимит на 365 дней', () => {
   assert.equal(g.stories, null);
   assert.equal(g.until, 365 * 86400000);
 });
-check('FREE_STORIES=1: ровно одна бесплатная сказка любым способом', () => { assert.equal(FREE_STORIES, 1); assert.equal(RECORD_FREE, 1); });
+check('FREE_STORIES=3: три бесплатные сказки любым способом', () => { assert.equal(FREE_STORIES, 3); assert.equal(RECORD_FREE, 3); });
 
 console.log('\nправила аккаунта (lib/store.js) — тот же счётчик, что списывает Favola');
 const { canMake, canMakeRecord, blankUser, publicView, linkIdentity, emailKey, saveUser } = await import('../lib/store.js');
@@ -66,9 +66,11 @@ check('после FREE_STORIES бесплатных без оплаты — не
   const u = blankUser('dev2'); u.made = FREE_STORIES;
   assert.equal(canMake(u, FREE_STORIES).ok, false);
 });
-check('вторая сказка из записи без оплаты — нельзя (RECORD_FREE=1)', () => {
+check('вторая и третья сказки из записи — бесплатно, четвёртая без оплаты — нельзя', () => {
   const u = blankUser('dev3'); u.made = 1;
-  assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, false);
+  assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, true);
+  u.made = 2; assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, true);
+  u.made = 3; assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, false);
 });
 check('publicView не отдаёт лишнего', () => {
   const u = blankUser('dev4');
@@ -461,12 +463,12 @@ console.log('\nпропуск на сказку: без списания ска�
     } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   })();
   await (async () => {
-    const name = 'второй сказки без оплаты нет: spend отказывает и пропуск не выдаёт';
+    const name = 'три сказки бесплатно, четвёртой без оплаты нет: spend отказывает и пропуск не выдаёт';
     try {
       const device = 'tk-dev2-' + Date.now();
-      await call(spend, { method:'POST', body:{ device, kind:'record' } });
-      const sp2 = await call(spend, { method:'POST', body:{ device, kind:'record' } });
-      assert.equal(sp2._b.ok, false); assert.equal(sp2._b.ticket, undefined);
+      for (let k = 0; k < 3; k++) { const r = await call(spend, { method:'POST', body:{ device, kind:'record' } }); assert.equal(r._b.ok, true, 'бесплатная № ' + (k + 1)); assert.ok(r._b.ticket); }
+      const sp4 = await call(spend, { method:'POST', body:{ device, kind:'record' } });
+      assert.equal(sp4._b.ok, false); assert.equal(sp4._b.ticket, undefined);
       ok++; console.log('  ok   ' + name);
     } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   })();
