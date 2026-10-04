@@ -870,10 +870,15 @@ await (async () => {
   const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = { __r:'translate', ...(req.query || {}) }; req.body = req.body || {}; await h(req, res); return res; };
   const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
   let tcalls = 0, vcalls = 0;
-  TR._setForTests(async () => { tcalls++; return JSON.stringify({ title:'The Whale and the Lighthouse', pages:['Once there was a whale.','It shone.'] }); },
+  TR._setForTests(async () => { tcalls++; return 'TITLE: The Whale and the Lighthouse\n[[1]] Once there was a whale.\n[[2]] It shone.'; },
                   async ({ text }) => { vcalls++; return { audio: Buffer.from('mp3:' + text).toString('base64') }; });
   const u = S.blankUser('tr-mom'); u.radio_made = ['st-tr']; await S.saveUser(u);
   await S.set('rad:story:st-tr', { id:'st-tr', device:'tr-mom', title:'Кит и маяк', panels:['Жил-был кит.','Он светил.'], art:[], audio:{} });
+  await t('разбор перевода: китайские кавычки и диалоги не ломают, неполный ответ отбрасывается', async () => {
+    const ok2 = TR.parseTranslation('TITLE：鲸鱼和灯塔\n[[1]] 从前有一头鲸鱼。他说：“你好！”\n[[2]] 它发着光。', 2);
+    assert.deepEqual(ok2, { title:'鲸鱼和灯塔', pages:['从前有一头鲸鱼。他说：“你好！”', '它发着光。'] });
+    assert.equal(TR.parseTranslation('TITLE: x\n[[1]] only one', 2), null);
+  });
   await t('чужую сказку перевести нельзя', async () => { assert.equal((await call({ method:'POST', body:{ act:'translate', device:'tr-fan', id:'st-tr', to:'en' } }))._s, 404); });
   await t('перевод: столько же страниц, сохраняется в сказке, второй раз — без нового перевода', async () => {
     const r = await call({ method:'POST', body:{ act:'translate', device:'tr-mom', id:'st-tr', to:'en' } });
