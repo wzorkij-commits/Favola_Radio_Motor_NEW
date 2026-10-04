@@ -12,6 +12,7 @@ import { get, set, loadUser } from '../lib/store.js';
 import { asked } from '../lib/route.js';
 import { issueTicket } from '../lib/ticket.js';
 import * as Q from '../lib/square.js';
+import * as LU from '../lib/lullaby.js';
 
 export default async function handler(req, res){
   cors(res);
@@ -28,6 +29,24 @@ export default async function handler(req, res){
       if (!Q.mine(rec, b.device, u)) return res.status(404).json({ error: 'не найдено' });
       if (b.act === 'revoke'){ await Q.revokeShare(rec); return res.status(200).json({ ok: true }); }
       return res.status(200).json(await Q.createShare(rec));
+    }
+
+    // ── колыбельные: слушать могут все, загружает и удаляет владелец ──
+    if (asked(req) === 'lullaby'){
+      if (req.method === 'GET'){
+        if (q.id){ const r = await LU.playLullaby(String(q.id)); return r ? res.status(200).json(r) : res.status(404).json({ error: 'колыбельной нет' }); }
+        return res.status(200).json({ lullabies: await LU.listLullabies(q.lang === 'en' || q.lang === 'ru' ? q.lang : null) });
+      }
+      const ownerU = await Q.ownerOf(b.device);
+      if (!ownerU) return res.status(403).json({ error: 'только для владельца' });
+      if (b.act === 'add'){
+        if (!b.audioUrl) return res.status(400).json({ error: 'нет записи' });
+        const rec = await LU.addLullaby(b); waitUntil(LU.drawCover(rec.id).catch(() => {}));
+        return res.status(200).json({ id: rec.id });
+      }
+      if (b.act === 'redraw'){ waitUntil(LU.drawCover(String(b.id)).catch(() => {})); return res.status(200).json({ ok: true }); }
+      if (b.act === 'delete'){ await LU.removeLullaby(String(b.id)); return res.status(200).json({ ok: true }); }
+      return res.status(400).json({ error: 'неизвестное действие' });
     }
 
     const device = req.method === 'GET' ? q.device : b.device;
@@ -73,6 +92,7 @@ export default async function handler(req, res){
       if (!open) return res.status(403).json({ error: 'Площадь пока закрыта' });
       if (!Q.mine(rec, device, u)) return res.status(404).json({ error: 'не найдено' });
       if (!b.noChild || !b.rules) return res.status(400).json({ error: 'нужно подтвердить оба пункта' });
+      if (rec.child) return res.status(400).json({ error: 'в этой сказке имя ребёнка — она остаётся только у вас' });
       if (owner) { await Q.publish(rec, { author: b.author, verified: !!b.verified }); return res.status(200).json({ status: 'live' }); }
       await Q.submit(rec, b.author); return res.status(200).json({ status: 'pending' });
     }

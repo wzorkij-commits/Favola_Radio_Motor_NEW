@@ -1,6 +1,7 @@
 // Опция «Придумать вместе»: восемь ответов ребёнка и взрослого → сказка с картинками.
 //
-//   POST /api/wizard {answers:[8 строк], lang}
+//   POST /api/wizard {v:2, lang, story:{age, mood, length, hero, name?, trait, place, wish, event, helper, idea, child?}}
+//   (старый формат {answers:[8 строк], lang} тоже понимаем)
 //     -> {title, panels:[...], cast, world, scenes:[{brief,shows}], questions}
 //
 // Два шага (см. lib/prompts.js, WIZARD_TALE_SYSTEM):
@@ -13,6 +14,9 @@ import { requireTicket } from '../lib/ticket.js';
 
 const clip = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
 export const MIN_TOTAL = 900, MIN_PARAS = 4;
+// минимум символов и абзацев под выбранную длину (2 / 4 / 6 минут)
+const MIN_BY_LEN = { 2: [800, 4], 4: [1700, 5], 6: [2600, 7] };
+const WORDS_BY_LEN = { 2: 260, 4: 470, 6: 690 };
 
 /** Первая строка — название, дальше абзацы через пустую строку. */
 export function parseTale(raw){
@@ -32,11 +36,21 @@ export default async function handler(req, res) {
   if (!(await requireTicket(req, res))) return;
 
   try {
-    const { answers, lang = 'ru' } = req.body || {};
-    if (!Array.isArray(answers) || answers.length !== 8 || answers.some(a => !String(a || '').trim())) {
+    const { answers, lang = 'ru', v, story } = req.body || {};
+    // новый формат: настройка + семь вопросов (+ по желанию имя героя и ребёнок)
+    let st = null;
+    if (v === 2 && story && typeof story === 'object') {
+      st = {}; for (const k of ['age', 'mood', 'hero', 'name', 'trait', 'place', 'wish', 'event', 'helper', 'idea', 'child']) st[k] = clip(story[k], 200);
+      st.length = [2, 4, 6].includes(Number(story.length)) ? Number(story.length) : 4;
+      const need = ['hero', 'trait', 'place', 'wish', 'event', 'helper', 'idea'].filter(k => !st[k]);
+      if (need.length) return res.status(400).json({ error: 'не хватает ответов: ' + need.join(', ') });
+    }
+    if (!st && (!Array.isArray(answers) || answers.length !== 8 || answers.some(a => !String(a || '').trim()))) {
       return res.status(400).json({ error: 'нужны все восемь ответов' });
     }
-    const clean = answers.map(a => clip(a, 300));
+    const clean = st ? [st.name || st.hero, st.hero, st.wish, st.event, st.helper, st.place, st.trait, st.idea] : answers.map(a => clip(a, 300));
+    const [minTotal, minParas] = st ? MIN_BY_LEN[st.length] : [MIN_TOTAL, MIN_PARAS];
+    const wordsTarget = st ? WORDS_BY_LEN[st.length] : 350;
     const trace = [];
 
     // ── шаг 1: писатель ──
@@ -45,22 +59,22 @@ export default async function handler(req, res) {
       const tr = { step: 'tale', attempt }; trace.push(tr);
       try {
         const note = attempt > 1 ? (lang === 'en'
-          ? '\n\nImportant: write the full story in five or six paragraphs of three to six sentences each, about 350 words.'
-          : '\n\nВажно: напиши всю сказку целиком — пять-шесть абзацев по три-шесть предложений, около 350 слов.') : '';
+          ? `\n\nImportant: write the full story — paragraphs of three to six sentences each, about ${wordsTarget} words.`
+          : `\n\nВажно: напиши всю сказку целиком — абзацы по три-шесть предложений, около ${wordsTarget} слов.`) : '';
         const t0 = Date.now();
-        const r = await generateTextEx({ system: WIZARD_TALE_SYSTEM, prompt: buildWizardPrompt(clean, lang) + note, maxTokens: 3000, temperature: attempt === 1 ? 0.9 : 0.7 });
+        const r = await generateTextEx({ system: WIZARD_TALE_SYSTEM, prompt: buildWizardPrompt(st || clean, lang) + note, maxTokens: 4000, temperature: attempt === 1 ? 0.9 : 0.7 });
         const p = parseTale(r.text);
         const total = p.paragraphs.join(' ').length;
         Object.assign(tr, { ms: Date.now() - t0, stop: r.stop, outTokens: r.out, paragraphs: p.paragraphs.map(x => x.length), total });
         if (r.stop === 'max_tokens') { why = 'текст оборвался'; continue; }
-        if (p.paragraphs.length >= MIN_PARAS && total >= MIN_TOTAL) tale = p;
+        if (p.paragraphs.length >= minParas && total >= minTotal) tale = p;
         else { why = `короткий текст: ${p.paragraphs.length} абзацев, ${total} символов`; if (attempt === 3 && p.paragraphs.length >= 3) tale = p; }
       } catch (e) { why = String(e.message || e); tr.error = why.slice(0, 200); }
     }
 
     let out;
     if (tale) {
-      const paragraphs = tale.paragraphs.slice(0, 7);
+      const paragraphs = tale.paragraphs.slice(0, 10);
       const title = tale.title || clean[0];
       // ── шаг 2: художник (план картинок к готовому тексту) ──
       let plan = null;
@@ -103,6 +117,7 @@ export default async function handler(req, res) {
         source: 'fallback', why
       };
     }
+    if (st && st.child) out.child = true;
     console.log('wizard-trace ' + JSON.stringify({ result: out.source === 'fallback' ? 'fallback' : 'ok', why, trace }));
     if (req.query && req.query.trace === '1') out._trace = trace;
     return res.status(200).json(out);

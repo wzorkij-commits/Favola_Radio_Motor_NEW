@@ -73,6 +73,7 @@ export default async function handler(req, res) {
         kind: story.kind || 'wizard',
         title: story.title || '', lang: story.lang || 'ru',
         panels: story.panels, questions: story.questions || [],
+        child: !!story.child,              // в сказке настоящее имя ребёнка — только для семьи, не для Площади
         // audio.url — уже готовая ссылка на файл (чистка звука сама кладёт его в хранилище
         // при записи); timeline — на какой секунде начинается/кончается каждая страница;
         // words — слова с таймингом внутри каждой страницы (постепенное появление текста
