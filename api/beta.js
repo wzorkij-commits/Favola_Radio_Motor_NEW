@@ -6,7 +6,7 @@
 import { cors } from '../lib/providers.js';
 import { get, loadUser } from '../lib/store.js';
 import { isOwner } from '../lib/owner.js';
-import { join, invite, listAll, BETA_OPEN } from '../lib/beta.js';
+import { join, invite, listAll, BETA_OPEN, here, presence, loginLink } from '../lib/beta.js';
 
 async function owner(device){ if (!device) return false; const u = await loadUser(device); return isOwner(u.email); }
 
@@ -20,10 +20,15 @@ export default async function handler(req, res){
       const me = q.device ? (await loadUser(q.device)).email || null : null;
       if (!(await owner(q.device))) return res.status(403).json({ error: 'только для владельца', me });
       const donations = (await get('rad:donate:list')) || [];
-      return res.status(200).json({ ...(await listAll()), me, donations, donatedTotal: Math.round(donations.reduce((s, d) => s + (Number(d.amount) || 0), 0) * 100) / 100 });
+      return res.status(200).json({ ...(await listAll()), me, online: await presence(), donations, donatedTotal: Math.round(donations.reduce((s, d) => s + (Number(d.amount) || 0), 0) * 100) / 100 });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'GET или POST' });
     if (b.act === 'join') return res.status(200).json(await join(b));
+    if (b.act === 'here'){ await here(b.device, b.screen); return res.status(200).json({ ok: true }); }
+    if (b.act === 'login-link'){
+      if (!(await owner(b.device))) return res.status(403).json({ error: 'только для владельца' });
+      return res.status(200).json(await loginLink(b.email));
+    }
     if (b.act === 'invite' || b.act === 'invite-next'){
       if (!(await owner(b.device))) return res.status(403).json({ error: 'только для владельца' });
       let emails = Array.isArray(b.emails) ? b.emails : [];
