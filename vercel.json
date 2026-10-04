@@ -6,6 +6,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/share",
+      "destination": "/api/square?__r=share"
+    },
+    {
       "source": "/api/otp",
       "destination": "/api/auth?__r=otp"
     },
