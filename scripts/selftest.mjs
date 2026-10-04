@@ -832,7 +832,7 @@ await (async () => {
   const P = await import('../lib/prompts.js');
   const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
   await t('языки: ru, en, pt, es, de, zh; неизвестный — русский', async () => {
-    assert.deepEqual(P.LANGS, ['ru','en','pt','es','de','zh']); assert.equal(P.normLang('xx'), 'ru');
+    assert.deepEqual(P.LANGS, ['ru','en','pt','es','de','zh','lt']); assert.equal(P.langName('lt'), 'Lithuanian'); assert.equal(P.normLang('xx'), 'ru');
     assert.equal(P.langName('pt'), 'European Portuguese'); assert.equal(P.langName('zh'), 'Simplified Chinese');
   });
   await t('задание писателю на нужном языке', async () => {
@@ -840,7 +840,10 @@ await (async () => {
   });
   await t('библиотека «Favola 10»: десять сказок на каждом языке, названия переведены', async () => {
     const { libraryList } = await import('../data/library.js');
-    for (const l of ['ru','en','pt','es','de','zh']) { const L = libraryList(l); assert.equal(L.length, 10); assert.ok(L.every(x => x.lang === l && x.title)); }
+    for (const l of ['ru','en','pt','es','de','zh','lt']) { const L = libraryList(l); assert.equal(L.length, 10); assert.ok(L.every(x => x.lang === l && x.title)); }
+    assert.ok(libraryList('lt').every(x => x.planId.startsWith('lt10-')), 'в литовской версии — литовские сказки');
+    assert.equal(libraryList('lt')[0].title, 'Eglė žalčių karalienė');
+    const { f10Parse } = await import('../data/favola10.js'); assert.equal(f10Parse('lt10-neringa~lt').base.id, 'lt10-neringa'); assert.equal(f10Parse('lt10-neringa~ru').lang, 'ru');
     assert.equal(libraryList('es').find(x => x.planId === 'f10-stone-soup').title, 'La sopa de piedra');
     assert.equal(libraryList('zh').find(x => x.planId === 'f10-worse').title, '总可能更糟');
   });
