@@ -40,6 +40,8 @@ def api(route):
 
     if path == 'auth' and m == 'GET': return J({'enabled': False})
     if path == 'otp' and m == 'GET': return J({'enabled': True})
+    if path == 'otp' and m == 'POST' and body.get('act') == 'magic':
+        return J({'outcome': 'ok', 'вошёл': True, 'email': 'nocode@x.com'} if body.get('token') == 'goodtoken' else {'outcome': 'link-expired'})
     if path == 'otp' and m == 'POST':
         if body.get('code'):
             STATE['email'] = body.get('email')
@@ -519,6 +521,10 @@ check('после паузы перевод продолжается с той �
 page.click('#storyTranslate'); page.wait_for_timeout(200)
 check('«Стоп» на кнопке перевода выключает голос Favola', not page.evaluate("()=>TR_ON") and page.is_hidden('#trBar'))
 page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(200)
+
+# ── вход по личной ссылке ──
+page.goto(f'http://localhost:{PORT}/app.html?login=goodtoken'); page.wait_for_timeout(1500)
+check('по личной ссылке приложение открывается сразу на главной, без кода', cur() == 'hub' and 'login=' not in page.url, cur())
 
 check('за весь прогон ни одной ошибки в консоли', not errs, errs)
 

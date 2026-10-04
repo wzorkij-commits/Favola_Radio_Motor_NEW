@@ -940,5 +940,44 @@ await (async () => {
   });
 })();
 
+console.log('\nкто сейчас в приложении');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const B = await import('../lib/beta.js');
+  await t('«я здесь» от двух людей — владелец видит 2 онлайн, с почтой и экраном', async () => {
+    const u = S.blankUser('on-1'); u.email = 'mama@x.com'; await S.saveUser(u);
+    await B.here('on-1', 'story'); await B.here('on-2', 'hub');
+    const p = await B.presence(); assert.ok(p.now >= 2); assert.ok(p.rows.some(r => r.email === 'mama@x.com' && r.screen === 'story')); assert.ok(p.day >= 2);
+  });
+  await t('страница владельца получает счётчик онлайн', async () => {
+    const own = S.blankUser('on-own'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+    const h = (await import('../api/beta.js')).default; const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} };
+    await h({ method:'GET', headers:{}, query:{ act:'list', device:'on-own' }, body:{} }, res); assert.ok(res._b.online && res._b.online.now >= 2);
+  });
+})();
+
+console.log('\nвход по личной ссылке без кода');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const B = await import('../lib/beta.js');
+  const call = async (h, body, query = {}) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await h({ method:'POST', headers:{}, query, body }, res); return res; };
+  const own = S.blankUser('ml-own'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+  const beta = (await import('../api/beta.js')).default; const auth = (await import('../api/auth.js')).default;
+  let url;
+  await t('ссылку для входа создаёт только владелец', async () => {
+    assert.equal((await call(beta, { act:'login-link', device:'ml-fan', email:'nocode@x.com' }))._s, 403);
+    const r = await call(beta, { act:'login-link', device:'ml-own', email:'nocode@x.com' }); url = r._b.url; assert.match(url, /app\.html\?login=/);
+  });
+  await t('по ссылке человек входит без кода — и становится «вошёл»', async () => {
+    const token = url.split('login=')[1];
+    const r = await call(auth, { act:'magic', device:'ml-dev', token }, { __r:'otp' });
+    assert.equal(r._b.outcome, 'ok'); assert.equal((await S.loadUser('ml-dev')).email, 'nocode@x.com');
+    assert.equal((await S.get('rad:beta:req:nocode@x.com')).status, 'joined');
+  });
+  await t('неверная ссылка не пускает', async () => {
+    const r = await call(auth, { act:'magic', device:'ml-dev2', token:'nope' }, { __r:'otp' }); assert.equal(r._b.outcome, 'link-expired');
+  });
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);
