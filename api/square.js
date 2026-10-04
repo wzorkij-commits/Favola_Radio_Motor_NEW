@@ -47,7 +47,7 @@ export default async function handler(req, res){
     if (asked(req) === 'lullaby'){
       if (req.method === 'GET'){
         if (q.id){ const r = await LU.playLullaby(String(q.id)); return r ? res.status(200).json(r) : res.status(404).json({ error: 'колыбельной нет' }); }
-        return res.status(200).json({ lullabies: await LU.listLullabies(['ru','en','pt','es','de','zh'].includes(q.lang) ? q.lang : null) });
+        return res.status(200).json({ lullabies: await LU.listLullabies(['ru','en','pt','es','de','zh','lt'].includes(q.lang) ? q.lang : null) });
       }
       const ownerU = await Q.ownerOf(b.device);
       if (!ownerU) return res.status(403).json({ error: 'только для владельца' });
@@ -84,7 +84,7 @@ export default async function handler(req, res){
         if (!live && !(owner && rec)) return res.status(404).json({ error: 'сказки нет на Площади' });
         return res.status(200).json({ ...(await Q.publicStory(rec)), mine: !!(await get(`rad:sq:vote:${rec.id}:${who}`)) });
       }
-      const sqLang = ['ru','en','pt','es','de','zh'].includes(q.lang) ? q.lang : null;   // владельцу на beta-admin — все языки
+      const sqLang = ['ru','en','pt','es','de','zh','lt'].includes(q.lang) ? q.lang : null;   // владельцу на beta-admin — все языки
       return res.status(200).json({ open: true, owner: !!owner, ...(await Q.squareSections(who, sqLang)) });
     }
 
