@@ -17,6 +17,7 @@ JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP////////////////
 
 IMG_TRIES = {}
 BETA_JOINS = []
+WIZ_BODIES = []
 SQ_EVENTS = []
 DONATE = []
 ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
@@ -67,11 +68,16 @@ def api(route):
     if path == 'library' and m == 'POST':
         return J({'image': JPG, 'cached': False})
     if path == 'wizard':
-        return J({'title':'Проверочная сказка','panels':['Раз.','Два.','Три.'],
+        WIZ_BODIES.append(body)
+        return J({'child': bool((body.get('story') or {}).get('child')),'title':'Проверочная сказка','panels':['Раз.','Два.','Три.'],
                    'cast':[{'name':'Ася','look':'девочка с косичками'}], 'world':'лес',
                    'scenes':[{'brief':'a','shows':[]},{'brief':'b','shows':[]},{'brief':'c','shows':[]}],
                    'questions':['Вопрос один?','Вопрос два?','Вопрос три?']})
     if path == 'hero': return J({'look':'x','sheet': JPG})
+    q = {k: v[0] for k, v in qs.items()}
+    if path == 'lullaby':
+        if q.get('id'): return J({'id': q.get('id'), 'title': 'Спи, моя радость', 'author': 'Мама', 'cover': None, 'seed': 'l1', 'audio': 'data:audio/webm;base64,GkXfow=='})
+        return J({'lullabies': [{'id': 'lu1', 'title': 'Спи, моя радость', 'author': 'Мама', 'seed': 'l1', 'cover': None, 'plays': 0}]})
     if path == 'square':
         q = {k: v[0] for k, v in qs.items()}
         if m == 'GET' and q.get('act') == 'status': return J({'open': True, 'owner': False, 'public': True})
@@ -330,20 +336,30 @@ page.click('#goWizard'); page.wait_for_timeout(200)
 check('сначала — выбор стиля картинок (конструктор)', cur() == 'style', cur())
 page.click('.stylecard >> nth=1'); page.wait_for_timeout(150)
 check('конструктор открылся на первом вопросе', cur() == 'wizard', cur())
-page.fill('.wizstep input', 'Ася'); page.wait_for_timeout(100)
+check('первый шаг — настройка: возраст, настроение, длина и «Случайная сказка»', page.locator('.wizchoice').count() == 3 and 'Случайная' in page.inner_text('#wizBody'))
+page.click('.wizchoice >> nth=2 >> button >> nth=0'); page.wait_for_timeout(100)
 page.click('#wizNext'); page.wait_for_timeout(200)
-check('шаг 2 — выбор кто герой', page.locator('.wizchoice button').count() == 3)
-page.click('.wizchoice button >> nth=1'); page.wait_for_timeout(100)
+check('герой: шесть вариантов, «Удиви меня» и поле имени', page.locator('.wizchoice button').count() == 6 and 'Удиви' in page.inner_text('#wizBody') and page.locator('#wizBody input').count() == 2)
+check('без ответа дальше не пускает', page.is_disabled('#wizNext'))
+page.click('.wizchoice button >> nth=0'); page.fill('#wizBody input >> nth=1', 'Тиша'); page.wait_for_timeout(100)
 page.click('#wizNext'); page.wait_for_timeout(200)
-for i in range(5):
-    page.fill('.wizstep input', f'ответ {i+3}'); page.wait_for_timeout(80)
+page.fill('#wizBody input', 'боится темноты'); page.wait_for_timeout(80)
+check('свой ответ словами принимается', not page.is_disabled('#wizNext'))
+page.click('#wizNext'); page.wait_for_timeout(150)
+for i in range(4):
+    page.click('#wizBody .linkbtn'); page.wait_for_timeout(80)   # «Удиви меня»
     page.click('#wizNext'); page.wait_for_timeout(150)
-check('дошли до восьмого вопроса', page.evaluate("()=>document.querySelectorAll('.wizprog i.on').length") == 8)
-page.fill('.wizstep input', 'справился'); page.wait_for_timeout(100)
+check('шаг «идея сказки» — с вариантами и пояснением «без нравоучений»', 'нравоучен' in page.inner_text('#wizBody') and page.locator('.wizchoice button').count() == 6, page.inner_text('#wizBody')[:120])
+page.click('.wizchoice button >> nth=2'); page.click('#wizNext'); page.wait_for_timeout(150)
+check('последний шаг — ребёнок в сказке, можно пропустить', 'ребёнка' in page.inner_text('#wizBody') and not page.is_disabled('#wizNext') and page.evaluate("()=>document.querySelectorAll('.wizprog i.on').length") == 9)
+page.fill('#wizBody input', 'Аня')
 page.click('#wizNext'); page.wait_for_timeout(6500)   # с повторами после сбоя картинки
 check('после восьми ответов и рисования — телесуфлёр, чтобы прочитать вслух и записать',
       cur() == 'telep', cur())
 check('в телесуфлёре — текст только что собранной сказки', page.inner_text('#tpText') != '')
+wb = WIZ_BODIES[-1] if WIZ_BODIES else {}
+st = wb.get('story') or {}
+check('в мотор ушёл новый формат: длина 2 мин, герой, имя, черта, идея, ребёнок', wb.get('v') == 2 and st.get('length') == 2 and st.get('name') == 'Тиша' and st.get('trait') == 'боится темноты' and st.get('idea') and st.get('child') == 'Аня', st)
 check('картинки заказаны одним заданием на сервере, телефон только спрашивает «готово?»', ART['starts'] == ART_STARTS_BEFORE + 1 and ART['polls'] >= 2, ART)
 check('все картинки на месте — предупреждения нет', page.is_hidden('#tpArtNote'))
 check('запись и тут не идёт сама — видна кнопка «Записать»',
@@ -442,6 +458,16 @@ with page.expect_popup() as pop: page.click('#dlBook')
 bk = pop.value; bk.wait_for_timeout(400)
 check('книжка для печати открылась с названием и страницами', 'Кит и маяк' in bk.inner_text('body') and 'Он светил.' in bk.inner_text('body'))
 bk.close(); page.click('#dlClose')
+
+# ── колыбельные ──
+page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(700)
+check('на главной есть «Колыбельные», когда они загружены', page.is_visible('#goLull'))
+page.click('#goLull'); page.wait_for_timeout(700)
+check('список колыбельных с обложкой и названием', page.locator('#luGrid .book').count() == 1 and 'Спи, моя радость' in page.inner_text('#luGrid'))
+page.click('#luGrid .book'); page.wait_for_timeout(600)
+check('колыбельная открылась: обложка, кнопки «Повторять» и «Таймер сна»', cur() == 'lullplayer' and page.is_visible('#lpPlay') and page.is_visible('#lpLoop') and page.is_visible('#lpTimer'))
+page.click('#lpTimer'); page.click('#lpLoop'); page.wait_for_timeout(100)
+check('таймер сна и повтор переключаются', '15' in page.inner_text('#lpTimer') and page.get_attribute('#lpLoop', 'aria-pressed') == 'true', page.inner_text('#lpTimer'))
 
 check('за весь прогон ни одной ошибки в консоли', not errs, errs)
 

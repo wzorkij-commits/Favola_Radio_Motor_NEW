@@ -747,5 +747,80 @@ await (async () => {
   delete process.env.SQUARE_OPEN;
 })();
 
+console.log('\n«Придумать вместе» 2: настройка, характер героя, идея сказки, ребёнок в сказке');
+await (async () => {
+  const realFetch = global.fetch; process.env.RADIO_OPEN = '1'; process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test';
+  let tale = '';
+  const para = 'Жила-была лисичка Тиша, которая очень боялась темноты. Каждый вечер она смотрела на луну. «Где же ты?» — шептала она. Пахло соснами и мятой. ';
+  global.fetch = async (url, opts) => {
+    if (!String(url).includes('anthropic')) return realFetch(url, opts);
+    const b = JSON.parse(opts.body); const writer = /children's author/.test(b.system);
+    if (writer) tale = b.messages[0].content;
+    const text = writer ? 'Тиша и луна\n\n' + Array(5).fill(para + para).join('\n\n')
+      : JSON.stringify({ cast:[{ name:'Тиша', look:'a small fox' }], world:'forest', scenes: Array(5).fill({ brief:'a fox', shows:['fox'] }), questions:['Почему Тиша боялась?'] });
+    return { ok:true, json: async () => ({ content:[{ text }], usage:{ input_tokens:1, output_tokens:1 }, stop_reason:'end_turn' }) };
+  };
+  const h = (await import('../api/wizard.js')).default;
+  const call = async (body) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await h({ method:'POST', headers:{}, query:{}, body }, res); return res; };
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  try {
+    const story = { age:'3–5', mood:'уютная перед сном', length:2, hero:'лисичка', name:'Тиша', trait:'боится темноты', place:'лес', wish:'увидеть луну вблизи', event:'пропала луна', helper:'мудрая сова', idea:'можно попросить о помощи', child:'Аня' };
+    const r = await call({ v:2, lang:'ru', story });
+    await t('в задании писателю — возраст, настроение, длина, черта героя, событие, идея и ребёнок; концовку не задаём', async () => {
+      for (const w of ['3–5', 'уютная', '220–300', 'боится темноты', 'пропала луна', 'можно попросить о помощи', 'Аня']) assert.ok(tale.includes(w), 'нет: ' + w);
+      assert.ok(!/succeeds in the end|справляется в итоге/i.test(tale));
+    });
+    await t('сказка собрана, помечена «в ней ребёнок»', async () => { assert.equal(r._s, 200); assert.equal(r._b.child, true); assert.ok(r._b.panels.length >= 4); });
+    await t('без идеи или черты героя — просим дозаполнить', async () => {
+      const bad = await call({ v:2, lang:'ru', story:{ ...story, idea:'' } }); assert.equal(bad._s, 400); assert.match(bad._b.error, /idea/);
+    });
+    await t('сказку с ребёнком нельзя вынести на Площадь', async () => {
+      const S = await import('../lib/store.js'); const q = (await import('../api/square.js')).default;
+      const u = S.blankUser('wz-child'); u.radio_made = ['st-child']; await S.saveUser(u);
+      await S.set('rad:story:st-child', { id:'st-child', device:'wz-child', title:'Тиша', panels:['…'], child:true });
+      process.env.SQUARE_OPEN = '1';
+      const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} };
+      await q({ method:'POST', headers:{}, query:{}, body:{ act:'submit', device:'wz-child', id:'st-child', author:'Мама', noChild:true, rules:true } }, res);
+      delete process.env.SQUARE_OPEN;
+      assert.equal(res._s, 400); assert.match(res._b.error, /ребёнка/);
+    });
+  } finally { global.fetch = realFetch; delete process.env.RADIO_OPEN; }
+})();
+
+console.log('\nколыбельные: загрузка владельцем, обложка, слушают все');
+await (async () => {
+  const S = await import('../lib/store.js'); const LU = await import('../lib/lullaby.js');
+  const h = (await import('../api/square.js')).default;
+  const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = { __r:'lullaby', ...(req.query || {}) }; req.body = req.body || {}; await h(req, res); return res; };
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const own = S.blankUser('lu-own'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+  let prompt = ''; LU._setGenForTests(async (p) => { prompt = p; return 'data:image/png;base64,iVBORw0KGgo='; });
+  await t('загрузить может только владелец', async () => {
+    assert.equal((await call({ method:'POST', body:{ act:'add', device:'lu-fan', audioUrl:'data:audio/mpeg;base64,AAAA', title:'Спи, моя радость' } }))._s, 403);
+  });
+  let id;
+  await t('владелец загружает — мотор рисует обложку (ночь, луна, без надписей)', async () => {
+    const r = await call({ method:'POST', body:{ act:'add', device:'lu-own', audioUrl:'data:audio/mpeg;base64,AAAA', title:'Спи, моя радость', author:'Равшана Куркова' } });
+    id = r._b.id; assert.ok(id);
+    const rec = await LU.drawCover(id); assert.equal(rec.coverState, 'done'); assert.match(prompt, /moon/); assert.match(prompt, /No text/);
+  });
+  await t('список и прослушивание — для всех, счётчик прослушиваний растёт', async () => {
+    const l = await call({ method:'GET', query:{} }); assert.equal(l._b.lullabies[0].title, 'Спи, моя радость'); assert.ok(l._b.lullabies[0].cover);
+    const p = await call({ method:'GET', query:{ id } }); assert.ok(p._b.audio);
+    assert.equal((await call({ method:'GET', query:{} }))._b.lullabies[0].plays, 1);
+  });
+  await t('у русской и английской версии — свои колыбельные', async () => {
+    const en = await call({ method:'POST', body:{ act:'add', device:'lu-own', audioUrl:'data:audio/mpeg;base64,AAAA', title:'Hush, Little Baby', lang:'en' } });
+    const ru = await call({ method:'GET', query:{ lang:'ru' } }); const enL = await call({ method:'GET', query:{ lang:'en' } });
+    assert.deepEqual(ru._b.lullabies.map(x => x.title), ['Спи, моя радость']); assert.deepEqual(enL._b.lullabies.map(x => x.title), ['Hush, Little Baby']);
+    assert.equal((await call({ method:'GET', query:{} }))._b.lullabies.length, 2, 'владельцу в списке видны обе');
+    await call({ method:'POST', body:{ act:'delete', device:'lu-own', id: en._b.id } });
+  });
+  await t('владелец удаляет колыбельную', async () => {
+    await call({ method:'POST', body:{ act:'delete', device:'lu-own', id } });
+    assert.equal((await call({ method:'GET', query:{} }))._b.lullabies.length, 0);
+  });
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);
