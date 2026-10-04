@@ -4,11 +4,12 @@
 // (это не перепечатка чьих-либо пересказов или переводов). Английский текст — исходный;
 // другие языки мотор переводит сам при первом открытии и запоминает. Картинки общие
 // для всех языков: число абзацев в переводе сохраняется.
-export const F10_LANGS = ['ru', 'en', 'pt', 'es', 'de', 'zh'];
+export const F10_LANGS = ['ru', 'en', 'pt', 'es', 'de', 'zh', 'lt'];
+import { LITHUANIAN10 } from './lithuanian10.js';
 export const FAVOLA10 = [
 { id: 'f10-three-pigs', origin: 'Britain', estMinutes: 3,
   source: 'English folk tale, printed by Joseph Jacobs in "English Fairy Tales" (1890)',
-  titles: { ru: 'Три поросёнка', en: 'The Three Little Pigs', pt: 'Os Três Porquinhos', es: 'Los tres cerditos', de: 'Die drei kleinen Schweinchen', zh: '三只小猪' },
+  titles: { ru: 'Три поросёнка', en: 'The Three Little Pigs', pt: 'Os Três Porquinhos', es: 'Los tres cerditos', de: 'Die drei kleinen Schweinchen', zh: '三只小猪', lt: 'Trys paršiukai' },
   text: `Once upon a time, three little pigs left their mother's farm to build homes of their own. "Build them strong," she called after them, "and visit me on Sundays."
 
 The first little pig was in a hurry. He met a man carrying straw and built a house of straw in one afternoon. "Done!" he sang, and lay down for a nap in the sun.
@@ -24,7 +25,7 @@ The wolf huffed and puffed at the brick house until his cheeks were red and his 
 That winter the three pigs lived together in the warm brick house. In spring the two brothers built brick houses of their own, slowly and carefully, and every Sunday all three visited their mother.` },
 { id: 'f10-magpie-nest', origin: 'Britain', estMinutes: 3,
   source: 'English folk tale, printed by Joseph Jacobs in "English Fairy Tales" (1890)',
-  titles: { ru: 'Гнездо сороки', en: "The Magpie's Nest", pt: 'O Ninho da Pega', es: 'El nido de la urraca', de: 'Das Nest der Elster', zh: '喜鹊的窝' },
+  titles: { ru: 'Гнездо сороки', en: "The Magpie's Nest", pt: 'O Ninho da Pega', es: 'El nido de la urraca', de: 'Das Nest der Elster', zh: '喜鹊的窝', lt: 'Šarkos lizdas' },
   text: `Long ago, when the world was young, the birds did not know how to build nests. They slept on bare branches and laid their eggs wherever they could. Only Madge the Magpie knew the secret.
 
 One morning all the birds flew to Madge's tree. "Please," they chirped, "teach us how to build a nest." Madge fluffed her black and white feathers. "Very well," she said. "Watch closely."
@@ -40,7 +41,7 @@ Madge wove in soft feathers and wool. "Oh, that suits me!" said the sparrow, and
 "One's enough!" said Madge crossly, and flew away. The turtle dove never learned to build properly, and her nest is just a few sticks. And that is why every bird builds a different nest — each one stopped listening at a different moment.` },
 { id: 'f10-whittington-cat', origin: 'Britain', estMinutes: 4,
   source: 'English legend about Richard Whittington, Lord Mayor of London (14th–15th century)',
-  titles: { ru: 'Дик Уиттингтон и его кошка', en: 'Dick Whittington and His Cat', pt: 'Dick Whittington e o seu Gato', es: 'Dick Whittington y su gato', de: 'Dick Whittington und seine Katze', zh: '迪克·惠廷顿和他的猫' },
+  titles: { ru: 'Дик Уиттингтон и его кошка', en: 'Dick Whittington and His Cat', pt: 'Dick Whittington e o seu Gato', es: 'Dick Whittington y su gato', de: 'Dick Whittington und seine Katze', zh: '迪克·惠廷顿和他的猫', lt: 'Dikas Vitingtonas ir jo katė' },
   text: `Long ago a poor boy called Dick heard that the streets of London were paved with gold. So he walked all the way to the great city with nothing but a stick and a hungry stomach.
 
 The streets were muddy, not golden. Dick was cold and tired, until a kind merchant, Mr Fitzwarren, found him on his doorstep and gave him work in his kitchen. Dick slept in a little attic full of mice that scampered over him all night.
@@ -56,7 +57,7 @@ Meanwhile Dick, sad and lonely, had decided to leave London. As he climbed a hil
 When the ship came home, the gold was his. Dick shared it with everyone who had been kind to him, went to school, worked hard, and many years later he truly became Lord Mayor of London. And there was always a cat asleep by his fire.` },
 { id: 'f10-bremen', origin: 'Europe', estMinutes: 4,
   source: 'German folk tale, collected by the Brothers Grimm (1819)',
-  titles: { ru: 'Бременские музыканты', en: 'The Bremen Town Musicians', pt: 'Os Músicos de Bremen', es: 'Los músicos de Bremen', de: 'Die Bremer Stadtmusikanten', zh: '不莱梅的音乐家' },
+  titles: { ru: 'Бременские музыканты', en: 'The Bremen Town Musicians', pt: 'Os Músicos de Bremen', es: 'Los músicos de Bremen', de: 'Die Bremer Stadtmusikanten', zh: '不莱梅的音乐家', lt: 'Brėmeno muzikantai' },
   text: `Once there was a donkey who had carried sacks to the mill for many years. Now he was old and slow, and his farmer no longer wanted him. "I'll go to Bremen," said the donkey, "and become a town musician."
 
 On the road he met a tired old dog. "Come with me," said the donkey. "I'll play the lute, and you can beat the drum." Soon they met a cat with a face as long as three rainy days, and then a rooster crowing his heart out on a gate. "Come to Bremen with us," they said. "You can all sing."
@@ -72,7 +73,7 @@ Later one robber crept back to look. In the dark the cat scratched him, the dog 
 The four musicians liked the little house so much that they never went to Bremen at all. They lived there together, and every evening they gave a concert just for themselves.` },
 { id: 'f10-elves-shoemaker', origin: 'Europe', estMinutes: 3,
   source: 'German folk tale, collected by the Brothers Grimm (1812)',
-  titles: { ru: 'Эльфы и сапожник', en: 'The Elves and the Shoemaker', pt: 'Os Duendes e o Sapateiro', es: 'Los duendes y el zapatero', de: 'Die Wichtelmänner', zh: '小精灵和鞋匠' },
+  titles: { ru: 'Эльфы и сапожник', en: 'The Elves and the Shoemaker', pt: 'Os Duendes e o Sapateiro', es: 'Los duendes y el zapatero', de: 'Die Wichtelmänner', zh: '小精灵和鞋匠', lt: 'Nykštukai ir batsiuvys' },
   text: `Once there was a good shoemaker who had grown very poor. One evening he had only enough leather left for a single pair of shoes. He cut it out carefully, laid it on his workbench, and went to bed.
 
 In the morning he could hardly believe his eyes. On the bench stood a finished pair of shoes, with stitches so tiny and neat that it looked like magic. A customer came in, loved them, and paid enough for leather for two more pairs.
@@ -88,7 +89,7 @@ At midnight the elves found the clothes. They put them on, laughing with joy, an
 They never came back to make shoes, but the shoemaker did not need them anymore. He worked happily for the rest of his life, and every Christmas he left a little gift on the bench, just in case.` },
 { id: 'f10-stone-soup', origin: 'Europe', estMinutes: 3,
   source: 'European folk tale, told in many countries for centuries',
-  titles: { ru: 'Суп из камня', en: 'Stone Soup', pt: 'A Sopa de Pedra', es: 'La sopa de piedra', de: 'Die Steinsuppe', zh: '石头汤' },
+  titles: { ru: 'Суп из камня', en: 'Stone Soup', pt: 'A Sopa de Pedra', es: 'La sopa de piedra', de: 'Die Steinsuppe', zh: '石头汤', lt: 'Akmenų sriuba' },
   text: `One chilly evening a traveller came into a little village. He was hungry, but every door closed when he knocked. "We have nothing to spare," the villagers said.
 
 So the traveller set up his big iron pot in the square, filled it with water from the well and lit a fire. Then he took a smooth grey stone from his pocket and dropped it in. "Stone soup," he said happily. "The best soup in the world."
@@ -104,7 +105,7 @@ When the soup was ready, the traveller filled bowls for everyone. Someone brough
 In the morning he gave the stone to the girl and went on his way. And from then on, whenever winter evenings were long, the village made stone soup together.` },
 { id: 'f10-ugly-duckling', origin: 'Europe', estMinutes: 4,
   source: 'Fairy tale by Hans Christian Andersen (1843), public domain',
-  titles: { ru: 'Гадкий утёнок', en: 'The Ugly Duckling', pt: 'O Patinho Feio', es: 'El patito feo', de: 'Das hässliche Entlein', zh: '丑小鸭' },
+  titles: { ru: 'Гадкий утёнок', en: 'The Ugly Duckling', pt: 'O Patinho Feio', es: 'El patito feo', de: 'Das hässliche Entlein', zh: '丑小鸭', lt: 'Bjaurusis ančiukas' },
   text: `In the summer, by an old farm, a mother duck sat on her nest. One by one her eggs cracked, and out came fluffy yellow ducklings. But the biggest egg took longest of all, and the bird that came out was large, grey and clumsy.
 
 "How strange he looks," quacked the other ducks. The hens pecked at him and the farm cat hissed. Even his brothers and sisters said, "Go away, you ugly thing." The little grey duckling felt that he did not belong anywhere.
@@ -120,7 +121,7 @@ He swam towards them, bowing his head. And in the clear water he saw his own ref
 The swans swam around him and touched him gently with their beaks. Children threw bread and cried, "Look, a new swan — the most beautiful of all!" And the young swan was very happy, but not proud, because a good heart never becomes proud.` },
 { id: 'f10-worse', origin: 'Jewish', estMinutes: 3,
   source: 'Jewish (Yiddish) folk tale, told in Eastern Europe for generations',
-  titles: { ru: 'Могло быть и хуже', en: 'It Could Always Be Worse', pt: 'Podia Sempre Ser Pior', es: 'Siempre podría ser peor', de: 'Es könnte immer schlimmer sein', zh: '总可能更糟' },
+  titles: { ru: 'Могло быть и хуже', en: 'It Could Always Be Worse', pt: 'Podia Sempre Ser Pior', es: 'Siempre podría ser peor', de: 'Es könnte immer schlimmer sein', zh: '总可能更糟', lt: 'Visada galėtų būti blogiau' },
   text: `Once upon a time, in a little village, a poor man lived with his wife, his mother and six children in one small room. It was so crowded and noisy that he could not think. So he went to the wise rabbi for advice.
 
 "Rabbi," he said, "my house is so small and so loud that I cannot bear it. What should I do?" The rabbi stroked his beard. "Do you have chickens?" he asked. "Yes." "Then take the chickens into the house."
@@ -136,7 +137,7 @@ The man let the chickens, the goat and the cow back into the yard. That night hi
 The next day he went to the rabbi with a happy face. "Thank you," he said. "Now I know: it could always be worse."` },
 { id: 'f10-solomon-bee', origin: 'Jewish', estMinutes: 3,
   source: 'Jewish legend about King Solomon, from the old midrashic tradition',
-  titles: { ru: 'Царь Соломон и пчела', en: 'King Solomon and the Bee', pt: 'O Rei Salomão e a Abelha', es: 'El rey Salomón y la abeja', de: 'König Salomo und die Biene', zh: '所罗门王和蜜蜂' },
+  titles: { ru: 'Царь Соломон и пчела', en: 'King Solomon and the Bee', pt: 'O Rei Salomão e a Abelha', es: 'El rey Salomón y la abeja', de: 'König Salomo und die Biene', zh: '所罗门王和蜜蜂', lt: 'Karalius Saliamonas ir bitė' },
   text: `Long ago in Jerusalem lived King Solomon, the wisest king of all. He understood the language of birds and animals, and even the tiniest creatures could ask him for justice.
 
 One warm afternoon the king lay down to rest in his garden among the roses. A little bee, buzzing from flower to flower, bumped into his nose and, frightened, stung him. The king woke up with a red, swollen nose.
@@ -152,7 +153,7 @@ Solomon looked at the flowers and did not know. Then he heard a soft buzzing at 
 "These are the real flowers," said the king. The Queen of Sheba bowed to his wisdom, and Solomon smiled at the bee. He knew now that no one is too small to help, and that kindness always returns.` },
 { id: 'f10-honi-carob', origin: 'Jewish', estMinutes: 3,
   source: 'Story of Honi the Circle-Maker, from the Babylonian Talmud (Ta\'anit 23a)',
-  titles: { ru: 'Хони и рожковое дерево', en: 'Honi and the Carob Tree', pt: 'Honi e a Alfarrobeira', es: 'Honi y el algarrobo', de: 'Honi und der Johannisbrotbaum', zh: '霍尼和角豆树' },
+  titles: { ru: 'Хони и рожковое дерево', en: 'Honi and the Carob Tree', pt: 'Honi e a Alfarrobeira', es: 'Honi y el algarrobo', de: 'Honi und der Johannisbrotbaum', zh: '霍尼和角豆树', lt: 'Honis ir saldžiavaisis medis' },
   text: `Long ago in the land of Israel lived a wise man named Honi. He loved to walk along the dusty roads and look at everything around him — the olive trees, the hills, the people at work.
 
 One day he saw an old man kneeling in the earth, planting a tiny carob seedling. "Grandfather," said Honi, "how long will it take for this tree to give fruit?" "Seventy years," answered the old man, patting the soil.
@@ -168,4 +169,4 @@ When Honi woke up, he stretched and looked around. Everything seemed a little di
 Honi took a sweet carob pod and tasted it. "Now I see," he said softly. "We are always eating the fruit of someone else's kindness. And we must plant trees for the ones who come after us."` },
 ];
 export const f10Id = (base, lang) => base + '~' + lang;
-export function f10Parse(id){ const m = /^(f10-[a-z0-9-]+)~(ru|en|pt|es|de|zh)$/.exec(String(id || '')); if (!m) return null; const b = FAVOLA10.find(x => x.id === m[1]); return b ? { base: b, lang: m[2] } : null; }
+export function f10Parse(id){ const m = /^((?:f10|lt10)-[a-z0-9-]+)~(ru|en|pt|es|de|zh|lt)$/.exec(String(id || '')); if (!m) return null; const b = FAVOLA10.find(x => x.id === m[1]) || LITHUANIAN10.find(x => x.id === m[1]); return b ? { base: b, lang: m[2] } : null; }

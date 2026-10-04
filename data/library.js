@@ -681,9 +681,12 @@ Goldilocks woke up, saw the three bears, jumped out of the window and ran all th
 // «Прочитать готовую сказку» показывает «Favola 10» — десять сказок на любом языке приложения.
 // (Старые русские и английские тексты выше остаются: на них могут ссылаться уже записанные сказки.)
 import { FAVOLA10, F10_LANGS, f10Id } from './favola10.js';
+import { LITHUANIAN10 } from './lithuanian10.js';
 export function libraryList(lang) {
   const l = F10_LANGS.includes(lang) ? lang : 'en';
-  return FAVOLA10.map(b => ({ id: f10Id(b.id, l), lang: l, title: b.titles[l] || b.titles.en, estMinutes: b.estMinutes, origin: b.origin, planId: b.id }));
+  // в литовской версии — десять литовских сказок
+  const set = l === 'lt' ? LITHUANIAN10 : FAVOLA10;
+  return set.map(b => ({ id: f10Id(b.id, l), lang: l, title: b.titles[l] || b.titles.en, estMinutes: b.estMinutes, origin: b.origin, planId: b.id }));
 }
 
 export function libraryOne(id) {
