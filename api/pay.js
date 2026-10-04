@@ -2,6 +2,7 @@
 // потому что подписка одна на оба приложения.
 //
 //   POST /api/pay {device, plan, amount?, email?, back}
+import { normLang } from '../lib/prompts.js';
 import { cors } from '../lib/providers.js';
 import { loadUser, saveUser } from '../lib/store.js';
 import { PLANS, DONATION, CURRENCY, priceOf } from '../lib/plans.js';
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
     });
 
     u.payments = (u.payments || []).filter(p => p.status !== 'PENDING' || Date.now() - p.at < 36e5);
-    const extra = isDonation ? { name: String(name || '').slice(0, 60), message: String(message || '').slice(0, 300), email: email ? String(email).trim().toLowerCase() : (u.email || ''), lang: lang === 'en' ? 'en' : 'ru' } : {};
+    const extra = isDonation ? { name: String(name || '').slice(0, 60), message: String(message || '').slice(0, 300), email: email ? String(email).trim().toLowerCase() : (u.email || ''), lang: normLang(lang) } : {};
     u.payments.push({ ref, checkout: co.id, plan, amount: price, at: Date.now(), status: 'PENDING', ...extra });
     await saveUser(u);
 

@@ -49,7 +49,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'нужны все восемь ответов' });
     }
     const clean = st ? [st.name || st.hero, st.hero, st.wish, st.event, st.helper, st.place, st.trait, st.idea] : answers.map(a => clip(a, 300));
-    const [minTotal, minParas] = st ? MIN_BY_LEN[st.length] : [MIN_TOTAL, MIN_PARAS];
+    const [minTotal0, minParas] = st ? MIN_BY_LEN[st.length] : [MIN_TOTAL, MIN_PARAS];
+    const minTotal = lang === 'zh' ? Math.round(minTotal0 * 0.35) : minTotal0;   // в китайском тексте знаков втрое меньше
     const wordsTarget = st ? WORDS_BY_LEN[st.length] : 350;
     const trace = [];
 
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
     for (let attempt = 1; attempt <= 3 && !tale; attempt++) {
       const tr = { step: 'tale', attempt }; trace.push(tr);
       try {
-        const note = attempt > 1 ? (lang === 'en'
+        const note = attempt > 1 ? (lang !== 'ru'
           ? `\n\nImportant: write the full story — paragraphs of three to six sentences each, about ${wordsTarget} words.`
           : `\n\nВажно: напиши всю сказку целиком — абзацы по три-шесть предложений, около ${wordsTarget} слов.`) : '';
         const t0 = Date.now();
@@ -100,19 +101,19 @@ export default async function handler(req, res) {
         world: clip(plan && plan.world || clean[5], 220),
         questions: (plan && Array.isArray(plan.questions) ? plan.questions : []).slice(0, 6).map(q => clip(q, 200)).filter(Boolean)
       };
-      if (!out.questions.length) out.questions = lang === 'en'
+      if (!out.questions.length) out.questions = lang !== 'ru'
         ? ['What do you think the hero felt?', 'What would you have done?', 'What happens next, do you think?', 'Which part would you draw?', 'Who would you want as a friend in this story?']
         : ['Что, как ты думаешь, чувствовал герой?', 'А что бы сделал ты?', 'Как думаешь, что было дальше?', 'Какую часть ты бы нарисовал?', 'С кем из этой истории ты хотел бы дружить?'];
     } else {
       // Модель не ответила вовсе — складываем сказку из восьми ответов, чтобы человек не остался ни с чем.
-      const Q = lang === 'en'
+      const Q = lang !== 'ru'
         ? ['is called', 'is a', 'wants', 'is stopped by', 'is helped by', 'in', 'first tries', 'in the end']
         : ['зовут', 'это', 'хочет', 'мешает', 'помогает', 'происходит в', 'сначала пробует', 'в итоге'];
       out = {
         title: clean[0], panels: clean.map((a, i) => `${Q[i]}: ${a}`),
         cast: [{ name: clean[0], look: clean[1] }], world: clean[5],
         scenes: clean.map(a => ({ brief: `A picture-book illustration: ${a}`, shows: [] })),
-        questions: lang === 'en' ? ['What do you think the hero felt?', 'What would you have done?', 'What happens next, do you think?']
+        questions: lang !== 'ru' ? ['What do you think the hero felt?', 'What would you have done?', 'What happens next, do you think?']
                                  : ['Что, как ты думаешь, чувствовал герой?', 'А что бы сделал ты?', 'Как думаешь, что было дальше?'],
         source: 'fallback', why
       };

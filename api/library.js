@@ -14,6 +14,44 @@ import { LIBRARY_SCENES_SYSTEM, buildLibraryScenesPrompt, buildCastSheetPrompt, 
 import { get, set } from '../lib/store.js';
 import { putFile, BLOB_READY, viewUrl } from '../lib/blob.js';
 import { libraryList, libraryOne } from '../data/library.js';
+import { f10Parse } from '../data/favola10.js';
+import { langName } from '../lib/prompts.js';
+
+// Сказка из «Favola 10» на нужном языке: английский — исходный текст, остальные языки
+// переводятся один раз и запоминаются. Абзацев столько же — картинки общие для всех языков.
+async function translated(base, lang) {
+  if (lang === 'en') return base.text;
+  const k = 'rad:f10t:' + lang + ':' + base.id;
+  const cached = await get(k);
+  if (cached && cached.text) return cached.text;
+  const want = base.text.split(/\n\n+/).length;
+  for (let t = 0; t < 2; t++) {
+    try {
+      const raw = await generateText({
+        system: `You translate children's bedtime stories for reading aloud. Translate the story into ${langName(lang)}. Keep exactly the same paragraphs: ${want} paragraphs separated by one empty line, one paragraph for each original paragraph. Warm, natural, simple language for children aged 4 to 8, easy to read aloud. Keep the names, but use the traditional form if the target language has one (Solomon, Sheba, Bremen). Answer with the translated story only — no title, no notes.`,
+        prompt: base.text, maxTokens: 4000, temperature: 0.3
+      });
+      const text = String(raw || '').replace(/\r/g, '').trim();
+      if (text.split(/\n\s*\n+/).length === want) { await set(k, { text, at: Date.now() }); return text; }
+    } catch (e) { /* попробуем ещё раз, потом — английский */ }
+  }
+  return base.text;
+}
+async function getStory(id) {
+  const f = f10Parse(id);
+  if (!f) return libraryOne(id);
+  const text = await translated(f.base, f.lang);
+  return { id, lang: text === f.base.text && f.lang !== 'en' ? 'en' : f.lang, title: f.base.titles[f.lang] || f.base.titles.en,
+    source: f.base.source, estMinutes: f.base.estMinutes, text, planId: f.base.id,
+    planStory: { id: f.base.id, lang: 'en', title: f.base.titles.en, text: f.base.text } };
+}
+// план картинок строится по английскому тексту и общий для всех языков; подписи — на языке читателя
+async function planFor(story) {
+  const plan = await ensurePlan(story.planStory || story);
+  if (!story.planStory) return plan;
+  const paras = story.text.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
+  return { ...plan, scenes: plan.scenes.map((sc, i) => ({ ...sc, text: paras[i] || sc.text })) };
+}
 
 // «lib2»: с 27 сентября 2026 библиотека рисуется португальской книжкой (DEFAULT_STYLE);
 // новый ключ — чтобы все обложки и картинки нарисовались заново, старые не мешали.
@@ -77,14 +115,14 @@ export default async function handler(req, res) {
         // это было бы слишком медленно; просто читаем, что уже есть.
         const list = libraryList(lang);
         const withCovers = await Promise.all(list.map(async s => {
-          const cached = await get(planKey(s.id));
+          const cached = await get(planKey(s.planId || s.id));
           const cover = (cached && cached.scenes && cached.scenes[0] && cached.scenes[0].image) || null;
           return { ...s, cover: await viewUrl(cover) };
         }));
         return res.status(200).json({ stories: withCovers });
       }
 
-      const story = libraryOne(id);
+      const story = await getStory(id);
       if (!story) return res.status(404).json({ error: 'сказка не найдена' });
       // Для телесуфлёра нужен только текст — отдаём сразу. План картинок (он просит
       // модель и занимает 10–30 секунд, если сказку ещё никто не открывал) здесь
@@ -93,7 +131,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ id: story.id, lang: story.lang, title: story.title, source: story.source,
           estMinutes: story.estMinutes, text: story.text });
       }
-      const plan = await ensurePlan(story);
+      const plan = await planFor(story);
       return res.status(200).json({
         id: story.id, lang: story.lang, title: story.title, source: story.source,
         estMinutes: story.estMinutes, text: story.text,
@@ -106,9 +144,10 @@ export default async function handler(req, res) {
     const { act, id, scene } = req.body || {};
     if (act !== 'illustrate') return res.status(400).json({ error: 'неизвестное действие' });
 
-    const story = libraryOne(id);
+    const story = await getStory(id);
     if (!story) return res.status(404).json({ error: 'сказка не найдена' });
-    const plan = await ensurePlan(story);
+    const pid = story.planId || story.id;
+    const plan = await ensurePlan(story.planStory || story);
     const n = Number(scene);
     if (!Number.isInteger(n) || n < 0 || n >= plan.scenes.length) return res.status(400).json({ error: 'нет такой сцены' });
 
@@ -130,12 +169,12 @@ export default async function handler(req, res) {
       try {
         const m = /^data:([^;]+);base64,/.exec(dataUrl);
         const buf = Buffer.from(dataUrl.split(',')[1], 'base64');
-        finalUrl = await putFile(`library/${id}/scene-${n}.jpg`, buf, (m && m[1]) || 'image/jpeg');
+        finalUrl = await putFile(`library/${pid}/scene-${n}.jpg`, buf, (m && m[1]) || 'image/jpeg');
       } catch (e) { /* не сохранилось в хранилище — вернём как есть, просто не кэшируется */ }
     }
 
     plan.scenes[n].image = finalUrl;
-    await set(planKey(id), plan);
+    await set(planKey(pid), plan);
     return res.status(200).json({ image: await viewUrl(finalUrl), cached: false });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });

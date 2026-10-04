@@ -13,6 +13,7 @@ import { asked } from '../lib/route.js';
 import { issueTicket } from '../lib/ticket.js';
 import * as Q from '../lib/square.js';
 import * as LU from '../lib/lullaby.js';
+import * as TR from '../lib/translate.js';
 
 export default async function handler(req, res){
   cors(res);
@@ -31,11 +32,22 @@ export default async function handler(req, res){
       return res.status(200).json(await Q.createShare(rec));
     }
 
+    // ── перевод своей сказки: двуязычная книжка и озвучка голосом Favola ──
+    if (asked(req) === 'translate'){
+      const dev = req.method === 'GET' ? q.device : b.device, sid = req.method === 'GET' ? q.id : b.id;
+      const u0 = await loadUser(dev); const rec = sid ? await get(Q.storyKey(sid)) : null;
+      if (!Q.mine(rec, dev, u0)) return res.status(404).json({ error: 'не найдено' });
+      if (req.method === 'GET') return res.status(200).json({ tr: await TR.publicTr(rec) });
+      if (b.act === 'translate') { await TR.translateStory(rec, b.to); return res.status(200).json({ tr: await TR.publicTr(rec) }); }
+      if (b.act === 'narrate') { await TR.narrate(rec, b.to); return res.status(200).json({ tr: await TR.publicTr(rec) }); }
+      return res.status(400).json({ error: 'неизвестное действие' });
+    }
+
     // ── колыбельные: слушать могут все, загружает и удаляет владелец ──
     if (asked(req) === 'lullaby'){
       if (req.method === 'GET'){
         if (q.id){ const r = await LU.playLullaby(String(q.id)); return r ? res.status(200).json(r) : res.status(404).json({ error: 'колыбельной нет' }); }
-        return res.status(200).json({ lullabies: await LU.listLullabies(q.lang === 'en' || q.lang === 'ru' ? q.lang : null) });
+        return res.status(200).json({ lullabies: await LU.listLullabies(['ru','en','pt','es','de','zh'].includes(q.lang) ? q.lang : null) });
       }
       const ownerU = await Q.ownerOf(b.device);
       if (!ownerU) return res.status(403).json({ error: 'только для владельца' });
@@ -72,7 +84,8 @@ export default async function handler(req, res){
         if (!live && !(owner && rec)) return res.status(404).json({ error: 'сказки нет на Площади' });
         return res.status(200).json({ ...(await Q.publicStory(rec)), mine: !!(await get(`rad:sq:vote:${rec.id}:${who}`)) });
       }
-      return res.status(200).json({ open: true, owner: !!owner, ...(await Q.squareSections(who)) });
+      const sqLang = ['ru','en','pt','es','de','zh'].includes(q.lang) ? q.lang : null;   // владельцу на beta-admin — все языки
+      return res.status(200).json({ open: true, owner: !!owner, ...(await Q.squareSections(who, sqLang)) });
     }
 
     if (req.method !== 'POST') return res.status(405).json({ error: 'GET или POST' });
