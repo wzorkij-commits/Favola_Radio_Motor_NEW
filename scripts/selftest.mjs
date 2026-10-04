@@ -921,5 +921,24 @@ await (async () => {
   });
 })();
 
+console.log('\nприглашения: письмо до отметки, повтор при «слишком часто», ответы владельцу');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const B = await import('../lib/beta.js');
+  const real = global.fetch; process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test'; process.env.MAIL_RETRY_MS = '5';
+  await t('Resend ответил «слишком часто» — повторили, письмо ушло; есть reply_to и «отписаться»', async () => {
+    let n = 0, body = null;
+    global.fetch = async (u, o) => { if (!String(u).includes('resend')) return real(u, o); n++; body = JSON.parse(o.body); return n < 2 ? { ok:false, status:429, text: async () => 'rate' } : { ok:true, status:200, text: async () => '{"id":"m1"}' }; };
+    try { const r = await B.invite('ratetest@x.com'); assert.equal(r.status, 'invited'); assert.equal(n, 2); assert.equal(body.reply_to, 'wzorkij@gmail.com'); assert.ok(body.headers['List-Unsubscribe']); assert.ok(body.text.length > 80); }
+    finally { global.fetch = real; }
+  });
+  await t('письмо не ушло — человек не отмечается приглашённым, ошибка видна владельцу', async () => {
+    global.fetch = async (u, o) => { if (!String(u).includes('resend')) return real(u, o); return { ok:false, status:403, text: async () => 'domain not verified' }; };
+    try { await B.join({ email:'failtest@x.com', who:'kids', lang:'ru' }).catch(() => {}); await B.invite('failtest@x.com').then(() => { throw new Error('должно было упасть'); }, () => {}); }
+    finally { global.fetch = real; }
+    const r = await S.get('rad:beta:req:failtest@x.com'); assert.notEqual(r.status, 'invited'); assert.match(r.mailError, /domain not verified/);
+  });
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);
