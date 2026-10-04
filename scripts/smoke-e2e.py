@@ -19,6 +19,7 @@ IMG_TRIES = {}
 BETA_JOINS = []
 WIZ_BODIES = []
 SQ_EVENTS = []
+TR_CALLS = []
 DONATE = []
 ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
 STATE = {'email': None}
@@ -77,7 +78,8 @@ def api(route):
     q = {k: v[0] for k, v in qs.items()}
     if path == 'lullaby':
         if q.get('id'): return J({'id': q.get('id'), 'title': 'Спи, моя радость', 'author': 'Мама', 'cover': None, 'seed': 'l1', 'audio': 'data:audio/webm;base64,GkXfow=='})
-        return J({'lullabies': [{'id': 'lu1', 'title': 'Спи, моя радость', 'author': 'Мама', 'seed': 'l1', 'cover': None, 'plays': 0}]})
+        return J({'lullabies': [{'id': 'lu1', 'title': 'Спи, моя радость', 'author': 'Мама', 'seed': 'l1', 'cover': None, 'plays': 0},
+                                {'id': 'lu2', 'title': 'Баю-бай', 'author': '', 'seed': 'l2', 'cover': None, 'plays': 0}]})
     if path == 'square':
         q = {k: v[0] for k, v in qs.items()}
         if m == 'GET' and q.get('act') == 'status': return J({'open': True, 'owner': False, 'public': True})
@@ -87,6 +89,11 @@ def api(route):
             'fresh': [{'id': 'sq2', 'title': 'Сова', 'author': 'Мама Ани', 'verified': False, 'swallows': 0, 'seed': 'b'}]})
         if body.get('act') == 'swallow': SQ_EVENTS.append('swallow'); return J({'mine': True, 'swallows': 1})
         if body.get('act') == 'submit': SQ_EVENTS.append('submit:' + body.get('author', '')); return J({'status': 'pending'})
+    if path == 'translate':
+        if m == 'GET': return J({'tr': {}})
+        TR_CALLS.append(body.get('act'))
+        tr = {'en': {'title': 'The whale', 'panels': ['Once there was a whale.', 'It shone.'], 'audio': (['data:audio/mpeg;base64,AAAA', 'data:audio/mpeg;base64,AAAA'] if body.get('act') == 'narrate' else None)}}
+        return J({'tr': tr})
     if path == 'share':
         SQ_EVENTS.append('share'); return J({'token': 'tok', 'url': 'https://www.favola.space/listen.html?s=tok', 'plays': 0})
     if path == 'image': return J({'image': JPG})
@@ -463,11 +470,42 @@ bk.close(); page.click('#dlClose')
 page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(700)
 check('на главной есть «Колыбельные», когда они загружены', page.is_visible('#goLull'))
 page.click('#goLull'); page.wait_for_timeout(700)
-check('список колыбельных с обложкой и названием', page.locator('#luGrid .book').count() == 1 and 'Спи, моя радость' in page.inner_text('#luGrid'))
+check('список колыбельных с обложкой и названием', page.locator('#luGrid .book').count() == 2 and 'Спи, моя радость' in page.inner_text('#luGrid'))
 page.click('#luGrid .book'); page.wait_for_timeout(600)
 check('колыбельная открылась: обложка, кнопки «Повторять» и «Таймер сна»', cur() == 'lullplayer' and page.is_visible('#lpPlay') and page.is_visible('#lpLoop') and page.is_visible('#lpTimer'))
 page.click('#lpTimer'); page.click('#lpLoop'); page.wait_for_timeout(100)
 check('таймер сна и повтор переключаются', '15' in page.inner_text('#lpTimer') and page.get_attribute('#lpLoop', 'aria-pressed') == 'true', page.inner_text('#lpTimer'))
+check('в плеере — «назад/вперёд», ровный значок на кнопке и «Другие колыбельные»', page.is_visible('#lpPrev') and page.is_visible('#lpNext') and page.locator('#lpPlay svg').count() == 1 and page.locator('#lpMore .book').count() == 1)
+page.click('#lpNext'); page.wait_for_timeout(500)
+check('«вперёд» включает следующую колыбельную', 'Баю-бай' in page.inner_text('#lpTitle') or 'Спи' in page.inner_text('#lpTitle'))
+page.evaluate("()=>{ const a=document.getElementById('lpAudio'); window.__lpPaused=false; const p0=a.pause.bind(a); a.pause=()=>{ window.__lpPaused=true; try{ p0(); }catch(e){} }; }")
+page.click('.screen[data-active] [data-back]'); page.wait_for_timeout(300)
+check('ушли с плеера — колыбельная остановилась', page.evaluate("()=>window.__lpPaused === true") and page.evaluate("()=>currentScreen()") != 'lullplayer')
+page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(500)
+def pick_lang(name):
+    page.click('.screen[data-active] .langbtn'); page.wait_for_timeout(200)
+    page.click(f'#langList button:has-text("{name}")'); page.wait_for_timeout(500)
+page.click('.screen[data-active] .langbtn'); page.wait_for_timeout(200)
+check('кнопка языка открывает выбор из шести языков', page.is_visible('#langBg') and page.locator('#langList button').count() == 6)
+page.click('#langList button:has-text("English")'); page.wait_for_timeout(500)
+check('язык переключается в любой момент: главная стала английской', page.inner_text('#helloTitle') == 'Hello' and page.inner_text('.screen[data-active] .langbtn') == 'EN', page.inner_text('#helloTitle'))
+pick_lang('Español'); check('испанский: «Hola» и испанские кнопки', page.inner_text('#helloTitle') == 'Hola' and 'Grabar un cuento' in page.inner_text('.screen[data-active]'), page.inner_text('#helloTitle'))
+pick_lang('Deutsch'); check('немецкий: «Hallo»', page.inner_text('#helloTitle') == 'Hallo')
+pick_lang('Português'); check('португальский: «Olá»', page.inner_text('#helloTitle') == 'Olá')
+pick_lang('中文'); check('китайский: «你好» и китайские кнопки', page.inner_text('#helloTitle') == '你好' and '录一个故事' in page.inner_text('.screen[data-active]'), page.inner_text('.screen[data-active]')[:80])
+pick_lang('Русский')
+check('и обратно на русский', page.inner_text('#helloTitle') == 'Привет')
+
+# ── перевод своей сказки ──
+page.evaluate("()=>{CURRENT_STORY = { id:'rd-tr', title:'Кит', lang:'ru', panels:['Жил-был кит.','Он светил.'], art:[], audio:{} }; openStoryPlayer();}"); page.wait_for_timeout(500)
+check('у своей сказки есть «Перевести»', page.is_visible('#storyTranslate'))
+page.click('#storyTranslate'); page.wait_for_timeout(200)
+check('выбор языка перевода — пять других языков', page.locator('#trLangs button').count() == 5)
+page.click('#trLangs button:has-text("English")'); page.wait_for_timeout(500)
+check('под страницей появился перевод', 'Once there was a whale.' in page.inner_text('#storyTxt') and 'translate' in TR_CALLS, page.inner_text('#storyTxt'))
+page.click('#trListen'); page.wait_for_timeout(500)
+check('«Послушать» — озвучка перевода голосом Favola', 'narrate' in TR_CALLS)
+page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(200)
 
 check('за весь прогон ни одной ошибки в консоли', not errs, errs)
 

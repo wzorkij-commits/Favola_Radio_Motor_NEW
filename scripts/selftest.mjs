@@ -36,7 +36,7 @@ check('у каждой сказки есть текст, источник и о�
     assert.ok(s.estMinutes > 0, s.id + ': нет оценки времени чтения');
   }
 });
-check('libraryList фильтрует по языку', () => assert.equal(libraryList('ru').length, 16));
+check('libraryList: в каждом языке — десять сказок «Favola 10»', () => assert.equal(libraryList('ru').length, 10));
 check('libraryOne находит по id, иначе null', () => {
   assert.equal(libraryOne('ru-repka').title, 'Репка');
   assert.equal(libraryOne('нет-такой'), null);
@@ -809,16 +809,82 @@ await (async () => {
     const p = await call({ method:'GET', query:{ id } }); assert.ok(p._b.audio);
     assert.equal((await call({ method:'GET', query:{} }))._b.lullabies[0].plays, 1);
   });
+  await t('путь загрузки колыбельной со страницы владельца принимается хранилищем', async () => {
+    const { isUploadPathOk } = await import('../lib/record.js');
+    assert.equal(isUploadPathOk('radio-raw/rdabc123/lull' + Date.now().toString(36) + '.mp3'), true);
+    assert.equal(isUploadPathOk('radio-raw/rdabc123/lull-' + Date.now().toString(36) + '.mp3'), false, 'с дефисом в имени — отказ');
+  });
   await t('у русской и английской версии — свои колыбельные', async () => {
     const en = await call({ method:'POST', body:{ act:'add', device:'lu-own', audioUrl:'data:audio/mpeg;base64,AAAA', title:'Hush, Little Baby', lang:'en' } });
     const ru = await call({ method:'GET', query:{ lang:'ru' } }); const enL = await call({ method:'GET', query:{ lang:'en' } });
-    assert.deepEqual(ru._b.lullabies.map(x => x.title), ['Спи, моя радость']); assert.deepEqual(enL._b.lullabies.map(x => x.title), ['Hush, Little Baby']);
+    assert.deepEqual(ru._b.lullabies.map(x => x.title).sort(), ['Hush, Little Baby', 'Спи, моя радость'].sort(), 'русским — русские и английские'); assert.deepEqual(enL._b.lullabies.map(x => x.title), ['Hush, Little Baby'], 'англичанам — только английские');
     assert.equal((await call({ method:'GET', query:{} }))._b.lullabies.length, 2, 'владельцу в списке видны обе');
     await call({ method:'POST', body:{ act:'delete', device:'lu-own', id: en._b.id } });
   });
   await t('владелец удаляет колыбельную', async () => {
     await call({ method:'POST', body:{ act:'delete', device:'lu-own', id } });
     assert.equal((await call({ method:'GET', query:{} }))._b.lullabies.length, 0);
+  });
+})();
+
+console.log('\nшесть языков');
+await (async () => {
+  const P = await import('../lib/prompts.js');
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  await t('языки: ru, en, pt, es, de, zh; неизвестный — русский', async () => {
+    assert.deepEqual(P.LANGS, ['ru','en','pt','es','de','zh']); assert.equal(P.normLang('xx'), 'ru');
+    assert.equal(P.langName('pt'), 'European Portuguese'); assert.equal(P.langName('zh'), 'Simplified Chinese');
+  });
+  await t('задание писателю на нужном языке', async () => {
+    assert.match(P.buildWizardPrompt({ hero:'a', trait:'b', place:'c', wish:'d', event:'e', helper:'f', idea:'g', length:2 }, 'de'), /Language: German/);
+  });
+  await t('библиотека «Favola 10»: десять сказок на каждом языке, названия переведены', async () => {
+    const { libraryList } = await import('../data/library.js');
+    for (const l of ['ru','en','pt','es','de','zh']) { const L = libraryList(l); assert.equal(L.length, 10); assert.ok(L.every(x => x.lang === l && x.title)); }
+    assert.equal(libraryList('es').find(x => x.planId === 'f10-stone-soup').title, 'La sopa de piedra');
+    assert.equal(libraryList('zh').find(x => x.planId === 'f10-worse').title, '总可能更糟');
+  });
+  await t('перевод сказки делается один раз и запоминается; картинки общие для всех языков', async () => {
+    const realFetch = global.fetch; let calls = 0; process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test';
+    const { FAVOLA10 } = await import('../data/favola10.js'); const base = FAVOLA10.find(x => x.id === 'f10-stone-soup');
+    const n = base.text.split(/\n\n+/).length;
+    global.fetch = async (url, opts) => { if (!String(url).includes('anthropic')) return realFetch(url, opts); calls++;
+      const b = JSON.parse(opts.body); const text = /translate/i.test(b.system) ? Array.from({ length: n }, (_, i) => 'Párrafo ' + (i + 1) + '.').join('\n\n')
+        : JSON.stringify({ world:'village', cast:[], scenes: Array.from({ length: n }, () => ({ brief:'a pot', shows:['pot'] })) });
+      return { ok:true, json: async () => ({ content:[{ text }], usage:{ input_tokens:1, output_tokens:1 }, stop_reason:'end_turn' }) }; };
+    try {
+      const h = (await import('../api/library.js')).default;
+      const call = async (q) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await h({ method:'GET', headers:{}, query:q }, res); return res; };
+      const a = await call({ id:'f10-stone-soup~es', light:'1' }); assert.equal(a._b.lang, 'es'); assert.match(a._b.text, /Párrafo 1/);
+      const c0 = calls; await call({ id:'f10-stone-soup~es', light:'1' }); assert.equal(calls, c0, 'второй раз без перевода');
+      const full = await call({ id:'f10-stone-soup~es' }); assert.equal(full._b.scenes.length, n); assert.match(full._b.scenes[0].text, /Párrafo 1/);
+      const S = await import('../lib/store.js'); assert.ok(await S.get('rad:lib2:f10-stone-soup'), 'план картинок — общий, по английскому тексту');
+    } finally { global.fetch = realFetch; }
+  });
+})();
+
+console.log('\nперевод своей сказки: двуязычная книжка и озвучка');
+await (async () => {
+  const S = await import('../lib/store.js'); const TR = await import('../lib/translate.js');
+  const h = (await import('../api/square.js')).default;
+  const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = { __r:'translate', ...(req.query || {}) }; req.body = req.body || {}; await h(req, res); return res; };
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  let tcalls = 0, vcalls = 0;
+  TR._setForTests(async () => { tcalls++; return JSON.stringify({ title:'The Whale and the Lighthouse', pages:['Once there was a whale.','It shone.'] }); },
+                  async ({ text }) => { vcalls++; return { audio: Buffer.from('mp3:' + text).toString('base64') }; });
+  const u = S.blankUser('tr-mom'); u.radio_made = ['st-tr']; await S.saveUser(u);
+  await S.set('rad:story:st-tr', { id:'st-tr', device:'tr-mom', title:'Кит и маяк', panels:['Жил-был кит.','Он светил.'], art:[], audio:{} });
+  await t('чужую сказку перевести нельзя', async () => { assert.equal((await call({ method:'POST', body:{ act:'translate', device:'tr-fan', id:'st-tr', to:'en' } }))._s, 404); });
+  await t('перевод: столько же страниц, сохраняется в сказке, второй раз — без нового перевода', async () => {
+    const r = await call({ method:'POST', body:{ act:'translate', device:'tr-mom', id:'st-tr', to:'en' } });
+    assert.deepEqual(r._b.tr.en.panels, ['Once there was a whale.','It shone.']); assert.equal(r._b.tr.en.title, 'The Whale and the Lighthouse');
+    await call({ method:'POST', body:{ act:'translate', device:'tr-mom', id:'st-tr', to:'en' } }); assert.equal(tcalls, 1);
+  });
+  await t('озвучка перевода — по файлу на страницу, один раз', async () => {
+    const r = await call({ method:'POST', body:{ act:'narrate', device:'tr-mom', id:'st-tr', to:'en' } });
+    assert.equal(r._b.tr.en.audio.length, 2); assert.ok(r._b.tr.en.audio.every(Boolean)); assert.equal(vcalls, 2);
+    await call({ method:'POST', body:{ act:'narrate', device:'tr-mom', id:'st-tr', to:'en' } }); assert.equal(vcalls, 2);
+    const g = await call({ method:'GET', query:{ device:'tr-mom', id:'st-tr' } }); assert.ok(g._b.tr.en.audio[0]);
   });
 })();
 
