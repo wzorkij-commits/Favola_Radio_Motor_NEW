@@ -29,7 +29,8 @@ export default async function handler(req, res){
       let emails = Array.isArray(b.emails) ? b.emails : [];
       if (b.act === 'invite-next'){ const all = await listAll(); emails = all.rows.filter(r => r.status === 'waiting').slice(0, Math.min(50, Number(b.n) || 10)).map(r => r.email); }
       const done = [], failed = [];
-      for (const m of emails){ try { await invite(m); done.push(m); } catch (e) { failed.push({ email: m, why: String(e.message || e).slice(0, 160) }); } }
+      // по одному письму с паузой: Resend не любит залпов, почтовики — тоже
+      for (const m of emails){ try { await invite(m); done.push(m); } catch (e) { failed.push({ email: m, why: String(e.message || e).slice(0, 160) }); } await new Promise(r => setTimeout(r, Number(process.env.MAIL_GAP_MS || 700))); }
       return res.status(200).json({ invited: done, failed });
     }
     return res.status(400).json({ error: 'неизвестное действие' });
