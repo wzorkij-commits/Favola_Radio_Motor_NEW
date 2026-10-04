@@ -882,6 +882,12 @@ await (async () => {
     assert.deepEqual(ok2, { title:'鲸鱼和灯塔', pages:['从前有一头鲸鱼。他说：“你好！”', '它发着光。'] });
     assert.equal(TR.parseTranslation('TITLE: x\n[[1]] only one', 2), null);
   });
+  await t('литовский читает модель Eleven v3 (в Multilingual v2 литовского нет)', async () => {
+    const real = global.fetch; let body = null;
+    global.fetch = async (u, o) => { if (String(u).includes('elevenlabs')) { body = JSON.parse(o.body); return { ok:true, status:200, arrayBuffer: async () => new ArrayBuffer(4) }; } return real(u, o); };
+    try { const v = await TR.voiceV3('Labas vakaras.'); assert.ok(v.audio); assert.equal(body.model_id, 'eleven_v3'); assert.equal(body.language_code, 'lt'); }
+    finally { global.fetch = real; }
+  });
   await t('чужую сказку перевести нельзя', async () => { assert.equal((await call({ method:'POST', body:{ act:'translate', device:'tr-fan', id:'st-tr', to:'en' } }))._s, 404); });
   await t('перевод: столько же страниц, сохраняется в сказке, второй раз — без нового перевода', async () => {
     const r = await call({ method:'POST', body:{ act:'translate', device:'tr-mom', id:'st-tr', to:'en' } });
@@ -893,6 +899,25 @@ await (async () => {
     assert.equal(r._b.tr.en.audio.length, 2); assert.ok(r._b.tr.en.audio.every(Boolean)); assert.equal(vcalls, 2);
     await call({ method:'POST', body:{ act:'narrate', device:'tr-mom', id:'st-tr', to:'en' } }); assert.equal(vcalls, 2);
     const g = await call({ method:'GET', query:{ device:'tr-mom', id:'st-tr' } }); assert.ok(g._b.tr.en.audio[0]);
+  });
+})();
+
+console.log('\nElevenLabs занят: очередь и повтор');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const P = await import('../lib/providers.js');
+  await t('на «занято» (429) повторяем и получаем ответ', async () => {
+    const real = global.fetch; let n = 0;
+    global.fetch = async (u) => { if (!String(u).includes('elevenlabs')) return real(u); n++; return n < 3 ? { ok:false, status:429, text: async () => 'busy' } : { ok:true, status:200, json: async () => ({}) }; };
+    process.env.ELEVEN_RETRY_BASE = '5';
+    try { const r = await P.elevenFetch('https://api.elevenlabs.io/v1/text-to-speech/x', { method:'POST' }); assert.equal(r.status, 200); assert.equal(n, 3); }
+    finally { global.fetch = real; }
+  });
+  await t('не больше 4 озвучек одновременно на всех пользователей', async () => {
+    const real = global.fetch; let now = 0, peak = 0;
+    global.fetch = async (u) => { if (!String(u).includes('elevenlabs')) return real(u); now++; peak = Math.max(peak, now); await new Promise(r => setTimeout(r, 30)); now--; return { ok:true, status:200 }; };
+    try { await Promise.all(Array.from({ length: 10 }, () => P.elevenFetch('https://api.elevenlabs.io/v1/text-to-speech/x', { method:'POST' }))); assert.ok(peak <= 4, 'одновременно было ' + peak); }
+    finally { global.fetch = real; }
   });
 })();
 
