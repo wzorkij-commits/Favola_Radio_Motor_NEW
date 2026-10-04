@@ -17,6 +17,7 @@ JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP////////////////
 
 IMG_TRIES = {}
 BETA_JOINS = []
+SQ_EVENTS = []
 DONATE = []
 ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
 STATE = {'email': None}
@@ -71,6 +72,17 @@ def api(route):
                    'scenes':[{'brief':'a','shows':[]},{'brief':'b','shows':[]},{'brief':'c','shows':[]}],
                    'questions':['Вопрос один?','Вопрос два?','Вопрос три?']})
     if path == 'hero': return J({'look':'x','sheet': JPG})
+    if path == 'square':
+        q = {k: v[0] for k, v in qs.items()}
+        if m == 'GET' and q.get('act') == 'status': return J({'open': True, 'owner': False, 'public': True})
+        if m == 'GET' and q.get('id'): return J({'id': q.get('id'), 'title': 'Кит и маяк', 'panels': ['Жил-был кит.'], 'art': [JPG], 'audio': {'voice': None}, 'meta': None, 'author': 'Равшана Куркова', 'verified': True, 'swallows': 0, 'mine': False})
+        if m == 'GET': return J({'open': True, 'total': 2, 'week': None,
+            'stars': [{'id': 'sq1', 'title': 'Кит и маяк', 'author': 'Равшана Куркова', 'verified': True, 'swallows': 0, 'seed': 'a'}],
+            'fresh': [{'id': 'sq2', 'title': 'Сова', 'author': 'Мама Ани', 'verified': False, 'swallows': 0, 'seed': 'b'}]})
+        if body.get('act') == 'swallow': SQ_EVENTS.append('swallow'); return J({'mine': True, 'swallows': 1})
+        if body.get('act') == 'submit': SQ_EVENTS.append('submit:' + body.get('author', '')); return J({'status': 'pending'})
+    if path == 'share':
+        SQ_EVENTS.append('share'); return J({'token': 'tok', 'url': 'https://www.favola.space/listen.html?s=tok', 'plays': 0})
     if path == 'image': return J({'image': JPG})
     if path == 'art':
         if m == 'POST' and body.get('act') == 'attach':
@@ -396,9 +408,45 @@ check('без файлового хранилища приложение не у
 STATE['blob_ready'] = True
 page.click('.screen[data-active] [data-home]'); page.wait_for_timeout(150)
 
+# ── Площадь, ласточки, «поделиться» ──
+page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(700)
+check('на главной появилась «Площадь», когда она открыта', page.is_visible('#goSquare'))
+page.click('#goSquare'); page.wait_for_timeout(700)
+check('на Площади — голоса Favola и новые сказки', page.locator('#sqStars .book').count() == 1 and page.locator('#sqFresh .book').count() == 1 and 'голос Favola' in page.inner_text('#sqStars'))
+page.click('#sqStars .book'); page.wait_for_timeout(800)
+check('сказка с Площади открылась, есть кнопка «Ласточка», нет «Поделиться»', page.is_visible('#storySwallow') and page.is_hidden('#storyShare'))
+page.click('#storySwallow'); page.wait_for_timeout(400)
+check('ласточка отправлена, счётчик обновился', 'swallow' in SQ_EVENTS and '· 1' in page.inner_text('#storySwallowTx') and page.get_attribute('#storySwallow', 'aria-pressed') == 'true', page.inner_text('#storySwallowTx'))
+page.evaluate("()=>{CURRENT_STORY = { id:'rd-own', title:'Моя сказка', panels:['Раз.'], art:[], audio:{} }; openStoryPlayer();}"); page.wait_for_timeout(500)
+check('у своей сказки — «Поделиться» и «На Площадь», без ласточки', page.is_visible('#storyShare') and page.is_visible('#storyToSquare') and page.is_hidden('#storySwallow'))
+page.click('#storyShare'); page.wait_for_timeout(500)
+check('«Поделиться» даёт ссылку на страницу прослушивания', page.is_visible('#shareBg') and 'listen.html?s=' in page.input_value('#shareUrl'))
+page.click('#shareClose'); page.click('#storyToSquare'); page.wait_for_timeout(300)
+page.click('#sqSend'); page.wait_for_timeout(300)
+check('на Площадь без подписи и галочек не отправить', not any(e.startswith('submit') for e in SQ_EVENTS))
+page.fill('#sqAuthor', 'Мама Ани'); page.check('#sqNoChild'); page.check('#sqRules'); page.click('#sqSend'); page.wait_for_timeout(400)
+check('сказка отправлена на проверку', 'submit:Мама Ани' in SQ_EVENTS and ('проверки' in page.inner_text('#sqSheetNote') or 'check' in page.inner_text('#sqSheetNote')), page.inner_text('#sqSheetNote'))
+page.click('#sqClose')
+
+# ── тарифы и скачивание ──
+page.evaluate("()=>{ openPaywall ? openPaywall() : show('paywall'); }"); page.wait_for_timeout(400)
+pw = page.inner_text('.screen[data-active]')
+check('тарифы: 10 сказок за 9.99 € и 100 сказок за 49.99 €, годовой подписки нет', '100' in pw and '49.99' in pw and '9.99' in pw and 'Год' not in pw and 'year' not in pw.lower(), pw[:200])
+page.fill('#donateAmount', '5'); page.click('#buyDonate'); page.wait_for_timeout(200)
+check('донат меньше 10 € не принимается', '10' in page.inner_text('#paywallNote'), page.inner_text('#paywallNote'))
+page.evaluate("()=>{CURRENT_STORY = { id:'rd-dl', title:'Кит и маяк', panels:['Жил-был кит.','Он светил.'], art:[], audio:{ full:'data:audio/webm;base64,GkXfow==' } }; openStoryPlayer();}"); page.wait_for_timeout(400)
+check('у своей сказки есть «Скачать»', page.is_visible('#storyDownload'))
+page.click('#storyDownload'); page.wait_for_timeout(200)
+check('скачать: голос файлом и книжка для печати', page.is_visible('#dlAudio') and page.is_visible('#dlBook'))
+with page.expect_popup() as pop: page.click('#dlBook')
+bk = pop.value; bk.wait_for_timeout(400)
+check('книжка для печати открылась с названием и страницами', 'Кит и маяк' in bk.inner_text('body') and 'Он светил.' in bk.inner_text('body'))
+bk.close(); page.click('#dlClose')
+
 check('за весь прогон ни одной ошибки в консоли', not errs, errs)
 
 b.close()
+
 print('\n%d прошло, %d провалено' % (sum(results), len(results) - sum(results)))
 httpd.shutdown()
 sys.exit(0 if all(results) else 1)

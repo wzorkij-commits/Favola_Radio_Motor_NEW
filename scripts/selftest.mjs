@@ -12,7 +12,7 @@ function check(name, fn) {
 }
 
 console.log('модули api/*.js загружаются');
-const apiFiles = ['account', 'auth', 'pay', 'ping', 'record', 'image', 'hero', 'voice', 'library', 'wizard', 'stories', 'art', 'beta'];
+const apiFiles = ['account', 'auth', 'pay', 'ping', 'record', 'image', 'hero', 'voice', 'library', 'wizard', 'stories', 'art', 'beta', 'square'];
 for (const f of apiFiles) {
   try { await import('../api/' + f + '.js'); ok++; console.log('  ok   загрузился api/' + f + '.js'); }
   catch (e) { fail++; console.log('  FAIL api/' + f + '.js не загрузился -> ' + e.message); }
@@ -43,8 +43,12 @@ check('libraryOne находит по id, иначе null', () => {
 });
 
 console.log('\nтарифы (lib/plans.js) — пакет сказок, год без ограничений, донат');
-const { PLANS, FREE_STORIES, RECORD_FREE, grantFor } = await import('../lib/plans.js');
-check('два тарифа: pack10, year', () => assert.deepEqual(Object.keys(PLANS).sort(), ['pack10', 'year']));
+const { PLANS, FREE_STORIES, RECORD_FREE, grantFor, priceOf } = await import('../lib/plans.js');
+check('в продаже два пакета: 10 сказок за 9,99 € и 100 сказок за 49,99 €, без годовой подписки', () => {
+  assert.deepEqual(Object.keys(PLANS).sort(), ['pack10', 'pack100']);
+  assert.equal(PLANS.pack10.price, 9.99); assert.equal(PLANS.pack100.price, 49.99); assert.equal(grantFor('pack100', 0).stories, 100);
+});
+check('донат — от 10 €', () => { assert.equal(priceOf('support', 9), null); assert.equal(priceOf('support', 10), 10); assert.equal(priceOf('support', 37.5), 37.5); });
 check('grantFor(pack10) даёт 10 сказок', () => {
   const g = grantFor('pack10', 0);
   assert.equal(g.stories, 10);
@@ -665,6 +669,82 @@ await (async () => {
     ok++; console.log('  ok   донат 10 €: оплата SumUp → письмо «спасибо» → в списке владельца, без дублей');
   } catch (e) { fail++; console.log('  FAIL донат  -> ' + e.message); }
   finally { global.fetch = realFetch; }
+})();
+
+console.log('\nПлощадь, «поделиться», ласточки, загрузка за автора');
+await (async () => {
+  const S = await import('../lib/store.js'); const Q = await import('../lib/square.js');
+  const h = (await import('../api/square.js')).default;
+  const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; req.body = req.body || {}; await h(req, res); return res; };
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const own = S.blankUser('sq-own'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+  const mom = S.blankUser('sq-mom'); mom.email = 'mom@x.com'; mom.radio_made = ['st-mom']; await S.saveUser(mom);
+  const fan = S.blankUser('sq-fan'); fan.email = 'fan@x.com'; await S.saveUser(fan);
+  await S.set('rad:story:st-mom', { id:'st-mom', device:'sq-mom', email:'mom@x.com', title:'Кит и маяк', panels:['Жил-был кит.'], art:[], audio:{}, done:true });
+  delete process.env.SQUARE_OPEN;
+  await t('ссылка «поделиться»: открывает одну сказку без входа, считает прослушивания, закрывается', async () => {
+    const r = await call({ method:'POST', query:{ __r:'share' }, body:{ act:'create', device:'sq-mom', id:'st-mom' } });
+    assert.match(r._b.url, /listen\.html\?s=/); const tok = r._b.token;
+    const stranger = await call({ method:'POST', query:{ __r:'share' }, body:{ act:'create', device:'sq-fan', id:'st-mom' } }); assert.equal(stranger._s, 404);
+    const g = await call({ method:'GET', query:{ __r:'share', s: tok } }); assert.equal(g._b.title, 'Кит и маяк'); assert.equal(g._b.device, undefined); assert.equal(g._b.email, undefined);
+    const again = await call({ method:'POST', query:{ __r:'share' }, body:{ act:'create', device:'sq-mom', id:'st-mom' } }); assert.equal(again._b.token, tok); assert.equal(again._b.plays, 1);
+    await call({ method:'POST', query:{ __r:'share' }, body:{ act:'revoke', device:'sq-mom', id:'st-mom' } });
+    assert.equal((await call({ method:'GET', query:{ __r:'share', s: tok } }))._s, 404);
+  });
+  await t('пока Площадь закрыта, её видит только владелец', async () => {
+    assert.equal((await call({ method:'GET', query:{ device:'sq-fan' } }))._b.open, false);
+    assert.equal((await call({ method:'GET', query:{ device:'sq-own' } }))._b.open, true);
+  });
+  process.env.SQUARE_OPEN = '1';
+  await t('семья выносит сказку → проверка владельца → на Площади; без двух галочек нельзя', async () => {
+    assert.equal((await call({ method:'POST', body:{ act:'submit', device:'sq-mom', id:'st-mom', author:'Мама Ани', noChild:true } }))._s, 400);
+    assert.equal((await call({ method:'POST', body:{ act:'submit', device:'sq-mom', id:'st-mom', author:'Мама Ани', noChild:true, rules:true } }))._b.status, 'pending');
+    assert.equal((await call({ method:'GET', query:{ device:'sq-fan' } }))._b.total, 0, 'до проверки не видно');
+    assert.equal((await call({ method:'POST', body:{ act:'publish', device:'sq-fan', id:'st-mom' } }))._s, 403, 'не владелец не публикует');
+    assert.equal((await call({ method:'GET', query:{ act:'pending', device:'sq-own' } }))._b.pending.length, 1);
+    await call({ method:'POST', body:{ act:'publish', device:'sq-own', id:'st-mom' } });
+    const sq = await call({ method:'GET', query:{ device:'sq-fan' } }); assert.equal(sq._b.fresh[0].author, 'Мама Ани');
+  });
+  await t('ласточка: одна от человека, повторное нажатие снимает; сказка недели', async () => {
+    let r = await call({ method:'POST', body:{ act:'swallow', device:'sq-fan', id:'st-mom' } }); assert.equal(r._b.swallows, 1);
+    r = await call({ method:'POST', body:{ act:'swallow', device:'sq-fan', id:'st-mom' } }); assert.equal(r._b.swallows, 0);
+    await call({ method:'POST', body:{ act:'swallow', device:'sq-fan', id:'st-mom' } }); await call({ method:'POST', body:{ act:'swallow', device:'sq-own', id:'st-mom' } });
+    const sq = await call({ method:'GET', query:{ device:'sq-fan' } }); assert.equal(sq._b.week.id, 'st-mom'); assert.equal(sq._b.week.swallows, 2); assert.equal(sq._b.fresh[0].mine, true);
+  });
+  await t('чужую сказку с Площади можно послушать, но не открыть через «мои сказки»', async () => {
+    const g = await call({ method:'GET', query:{ device:'sq-fan', id:'st-mom' } }); assert.equal(g._b.title, 'Кит и маяк');
+    const st = (await import('../api/stories.js')).default; const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, setHeader(){return this;} };
+    await st({ method:'GET', headers:{}, query:{ device:'sq-fan', id:'st-mom' } }, res); assert.equal(res._s, 404);
+  });
+  await t('автор снимает сказку с Площади', async () => {
+    await call({ method:'POST', body:{ act:'withdraw', device:'sq-mom', id:'st-mom' } });
+    assert.equal((await call({ method:'GET', query:{ device:'sq-fan' } }))._b.total, 0);
+  });
+  await t('загрузка за автора: сервер собирает сказку по шагам и выкладывает с отметкой «голос Favola»', async () => {
+    const R = await import('../lib/record.js'); const A = await import('../lib/art.js'); A._fastForTests();
+    A._setGenForTests(async () => 'data:image/png;base64,iVBORw0KGgo=');
+    const realFetch = global.fetch; const calls = [];
+    global.fetch = async (url, opts) => { const u = String(url); calls.push(u);
+      if (u.includes('audio-isolation')) return { ok:true, status:200, arrayBuffer: async () => new ArrayBuffer(8), headers:{ get:()=> 'audio/mpeg' } };
+      if (u.includes('speech-to-text')) return { ok:true, status:200, json: async () => ({ text:'Жил-был кит. Он светил.', language_code:'rus', words:[{text:'Жил-был',start:0,end:.5,type:'word'},{text:' ',type:'spacing'},{text:'кит.',start:.6,end:1,type:'word'},{text:' ',type:'spacing'},{text:'Он',start:2.5,end:2.7,type:'word'},{text:' ',type:'spacing'},{text:'светил.',start:2.8,end:3.2,type:'word'}] }) };
+      if (u.includes('anthropic')) { const b = JSON.parse(opts.body); const polish = /edit|clean|полир|correct/i.test(b.system || '');
+        const text = polish ? JSON.stringify({ sentences:['Жил-был кит.','Он светил.'] }) : JSON.stringify({ title:'Кит и маяк', castText:'', world:'sea', scenes:[{ from:0, to:1, brief:'a whale', shows:['whale'] }], questions:['Что светил кит?'] });
+        return { ok:true, json: async () => ({ content:[{ text }], usage:{ input_tokens:1, output_tokens:1 }, stop_reason:'end_turn' }) }; }
+      return realFetch(url, opts); };
+    const readBackup = R.__readForTests;
+    try {
+      process.env.ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || 'test'; process.env.RADIO_OPEN = '1';
+      const job = Q.newImport({ device:'sq-own', audioUrl:'data:audio/mpeg;base64,AAAA', title:'Кит и маяк', author:'Равшана Куркова', lang:'ru', studio:false, publishNow:true });
+      // шаг очистки в тесте пропускаем: хранилища нет, голос уже «готов»
+      job.steps.clean = 'done'; job.voice = 'data:audio/mpeg;base64,AAAA';
+      await S.set('rad:import:' + job.id, job);
+      const done = await Q.runImport(job.id);
+      assert.equal(done.status, 'done', done.error); assert.ok(done.storyId);
+      const rec = await S.get('rad:story:' + done.storyId); assert.equal(rec.square.status, 'live'); assert.equal(rec.square.verified, true); assert.equal(rec.square.author, 'Равшана Куркова');
+      const sq = await call({ method:'GET', query:{ device:'sq-fan' } }); assert.equal(sq._b.stars[0].author, 'Равшана Куркова');
+    } finally { global.fetch = realFetch; delete process.env.RADIO_OPEN; }
+  });
+  delete process.env.SQUARE_OPEN;
 })();
 
 console.log(`\n${ok} прошло, ${fail} провалено`);
