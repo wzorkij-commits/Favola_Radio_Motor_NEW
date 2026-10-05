@@ -4,7 +4,7 @@
 //
 //   POST /api/auth {device, credential}   — пропуск от Google
 //   POST /api/auth {device, signout:true} — отвязать это устройство
-import { allowed, markJoined } from '../lib/beta.js';
+import { allowed, markJoined, markSignedUp } from '../lib/beta.js';
 import { cors } from '../lib/providers.js';
 import { get, loadUser, saveUser, publicView, linkIdentity, googleKey, emailKey, STORE_READY } from '../lib/store.js';
 import { FREE_STORIES } from '../lib/plans.js';
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     if (who.email && who.emailVerified) {
       await linkIdentity(u, emailKey(who.email));
       grantOwner(u, who.email);
-      await markJoined(who.email).catch(() => {});
+      await markSignedUp(who.email).catch(() => {});   // вход через Google — тоже виден владельцу
     }
     await saveUser(u);
 
