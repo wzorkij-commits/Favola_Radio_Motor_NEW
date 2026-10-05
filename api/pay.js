@@ -3,6 +3,8 @@
 //
 //   POST /api/pay {device, plan, amount?, email?, back}
 import { normLang } from '../lib/prompts.js';
+import { FOUNDER_LIMIT, founderPrice } from '../lib/plans.js';
+import { get as kvGet } from '../lib/store.js';
 import { cors } from '../lib/providers.js';
 import { loadUser, saveUser } from '../lib/store.js';
 import { PLANS, DONATION, CURRENCY, priceOf } from '../lib/plans.js';
@@ -17,6 +19,11 @@ export default async function handler(req, res) {
 
   cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
+  // сколько мест «Семьи-основателя» осталось — для экрана оплаты
+  if (req.method === 'GET' && (req.query || {}).act === 'founders') {
+    const sold = Number(await kvGet('rad:founders:count')) || 0;
+    return res.status(200).json({ sold, limit: FOUNDER_LIMIT, left: Math.max(0, FOUNDER_LIMIT - sold), price: founderPrice(sold) });
+  }
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
   try {
@@ -33,7 +40,7 @@ export default async function handler(req, res) {
     const isDonation = plan === DONATION.id;
     if (!isDonation && !PLANS[plan]) return res.status(400).json({ error: 'неизвестный тариф: ' + plan });
 
-    const price = priceOf(plan, amount);
+    const price = plan === 'founder' ? founderPrice(Number(await kvGet('rad:founders:count')) || 0) : priceOf(plan, amount);
     if (price === null) return res.status(400).json({ error: 'сумма вне допустимого' });
 
     const u = await loadUser(device);

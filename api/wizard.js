@@ -75,7 +75,11 @@ export default async function handler(req, res) {
 
     let out;
     if (tale) {
-      const paragraphs = tale.paragraphs.slice(0, 10);
+      // не больше 4 страниц с картинкой: длинная сказка складывается в 4 страницы (текст на странице прокручивается)
+      const allParas = tale.paragraphs.slice(0, 10);
+      const PAGES = 4;
+      const paragraphs = allParas.length <= PAGES ? allParas
+        : Array.from({ length: PAGES }, (_, k) => allParas.slice(Math.floor(k * allParas.length / PAGES), Math.floor((k + 1) * allParas.length / PAGES)).join('\n\n'));
       const title = tale.title || clean[0];
       // ── шаг 2: художник (план картинок к готовому тексту) ──
       let plan = null;
