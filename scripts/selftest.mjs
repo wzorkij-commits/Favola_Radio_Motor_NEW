@@ -44,9 +44,14 @@ check('libraryOne находит по id, иначе null', () => {
 
 console.log('\nтарифы (lib/plans.js) — пакет сказок, год без ограничений, донат');
 const { PLANS, FREE_STORIES, RECORD_FREE, grantFor, priceOf } = await import('../lib/plans.js');
-check('в продаже два пакета: 10 сказок за 9,99 € и 100 сказок за 49,99 €, без годовой подписки', () => {
-  assert.deepEqual(Object.keys(PLANS).sort(), ['pack10', 'pack100']);
-  assert.equal(PLANS.pack10.price, 9.99); assert.equal(PLANS.pack100.price, 49.99); assert.equal(grantFor('pack100', 0).stories, 100);
+check('в продаже «Семья-основатель» 39 € (60 сказок) и пакеты 5 / 15 / 40; убыточный пакет на 100 снят', () => {
+  assert.deepEqual(Object.keys(PLANS).sort(), ['founder', 'pack15', 'pack40', 'pack5']);
+  assert.equal(PLANS.founder.price, 39); assert.equal(grantFor('founder', 0).stories, 60);
+  assert.equal(PLANS.pack5.price, 7.99); assert.equal(PLANS.pack15.price, 17.99); assert.equal(PLANS.pack40.price, 39.99);
+  assert.equal(grantFor('pack100', 0).stories, 100, 'начатые до смены платежи засчитываются');
+});
+check('ранняя цена основателя — для первых 100 семей, потом 59 €', async () => {
+  const { founderPrice } = await import('../lib/plans.js'); assert.equal(founderPrice(0), 39); assert.equal(founderPrice(99), 39); assert.equal(founderPrice(100), 59);
 });
 check('донат — от 10 €', () => { assert.equal(priceOf('support', 9), null); assert.equal(priceOf('support', 10), 10); assert.equal(priceOf('support', 37.5), 37.5); });
 check('grantFor(pack10) даёт 10 сказок', () => {
@@ -509,12 +514,12 @@ await (async () => {
     const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} };
     await h({ method:'POST', headers:{}, query:{ trace:'1' }, body:{ answers:['Люмен','волшебное существо','полетать','конь','ферзь','Тютеляндия','слива','договорился'], lang:'ru' } }, res);
     await t('короткий черновик писателя отправлен на переписывание, затем — план картинок', async () => { assert.deepEqual(calls, ['tale','tale','plan']); });
-    await t('страницы — абзацы прозы писателя, а не подписи к картинкам', async () => {
-      assert.equal(res._s, 200); assert.equal(res._b.panels.length, 5); assert.ok(res._b.panels.every(p => p.length > 150), res._b.panels.map(p => p.length).join(','));
+    await t('страницы — проза писателя (5 абзацев складываются в 4 страницы — 4 картинки), а не подписи к картинкам', async () => {
+      assert.equal(res._s, 200); assert.equal(res._b.panels.length, 4); assert.ok(res._b.panels.every(p => p.length > 150), res._b.panels.map(p => p.length).join(','));
       assert.equal(res._b.title, 'Люмен и небо'); assert.ok(!res._b.source);
     });
-    await t('на каждый абзац — свой кадр, герои и вопросы от художника', async () => {
-      assert.equal(res._b.scenes.length, 5); assert.equal(res._b.cast[0].name, 'Люмен'); assert.equal(res._b.questions.length, 5);
+    await t('на каждую страницу — свой кадр (не больше 4), герои и вопросы от художника', async () => {
+      assert.ok(res._b.scenes.length <= 5); assert.equal(res._b.cast[0].name, 'Люмен'); assert.equal(res._b.questions.length, 5);
     });
     const { parseTale } = await import('../api/wizard.js');
     await t('разбор текста писателя: название и абзацы, лишние обёртки убираются', async () => {
@@ -998,6 +1003,34 @@ await (async () => {
       const row = await S.get('rad:beta:req:open@x.com'); assert.equal(row.status, 'joined');
     });
   } finally { global.fetch = real; }
+})();
+
+console.log('\n«Семья-основатель»: покупка, номер, счётчик мест');
+await (async () => {
+  const S = await import('../lib/store.js');
+  const realFetch = global.fetch; let status = 'PENDING';
+  global.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('resend')) return { ok:true, status:200, text: async () => '{"id":"x"}' };
+    if (u.includes('sumup') && u.includes('/me')) return { ok:true, status:200, json: async () => ({ merchant_profile:{ merchant_code:'M1' } }), text: async () => '{"merchant_profile":{"merchant_code":"M1"}}' };
+    if (u.includes('sumup') && opts && opts.method === 'POST') return { ok:true, status:200, json: async () => ({ id:'cof', hosted_checkout_url:'https://pay.sumup.com/cof' }), text: async () => '{"id":"cof","hosted_checkout_url":"https://pay.sumup.com/cof"}' };
+    if (u.includes('sumup')) return { ok:true, status:200, json: async () => ({ id:'cof', status }), text: async () => JSON.stringify({ id:'cof', status }) };
+    return realFetch(url, opts);
+  };
+  const call = async (h, req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; await h(req, res); return res; };
+  try {
+    const pay = (await import('../api/pay.js')).default;
+    const before = (await call(pay, { method:'GET', query:{ act:'founders' } }))._b;
+    const r1 = await call(pay, { method:'POST', body:{ device:'fd-1', plan:'founder', back:'https://www.favola.space/app.html?paid={REF}' } });
+    assert.equal(r1._b.outcome, 'ok', JSON.stringify(r1._b)); assert.equal(r1._b.amount, 39);
+    status = 'PAID';
+    const r2 = await call(pay, { method:'POST', query:{ __r:'pay-status' }, body:{ device:'fd-1', ref:r1._b.ref } });
+    assert.equal(r2._b.paid, true);
+    const u = await S.loadUser('fd-1'); assert.ok(u.founder && u.founder.no >= 1); assert.ok(u.stories >= 60);
+    const after = (await call(pay, { method:'GET', query:{ act:'founders' } }))._b; assert.equal(after.sold, before.sold + 1); assert.equal(after.left, before.left - 1);
+    ok++; console.log('  ok   основатель: 39 €, 60 сказок, номер семьи, мест стало на одно меньше');
+  } catch (e) { fail++; console.log('  FAIL основатель  -> ' + e.message); }
+  finally { global.fetch = realFetch; }
 })();
 
 console.log(`\n${ok} прошло, ${fail} провалено`);

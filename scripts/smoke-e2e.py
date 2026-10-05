@@ -55,6 +55,8 @@ def api(route):
     if path == 'align':
         n = len(body.get('weights') or [])
         return J({'scenes': [{'from': i, 'to': i, 'start': i, 'end': i+1} for i in range(n)]})
+    if path == 'pay' and m == 'GET':
+        return J({'sold': 13, 'limit': 100, 'left': 87, 'price': 39})
     if path == 'pay' and body.get('plan') == 'support':
         DONATE.append(body); return J({'outcome':'ok', 'url': 'about:blank', 'ref':'r-don'})
     if path == 'pay':
@@ -456,7 +458,8 @@ page.click('#sqClose')
 # ── тарифы и скачивание ──
 page.evaluate("()=>{ openPaywall ? openPaywall() : show('paywall'); }"); page.wait_for_timeout(400)
 pw = page.inner_text('.screen[data-active]')
-check('тарифы: 10 сказок за 9.99 € и 100 сказок за 49.99 €, годовой подписки нет', '100' in pw and '49.99' in pw and '9.99' in pw and 'Год' not in pw and 'year' not in pw.lower(), pw[:200])
+check('оплата: «Семья-основатель» 39 € сверху, пакеты 5 / 15 / 40, без слова «подписка» в предложении', 'Семья-основатель' in pw and '39' in pw and '7.99' in pw and '17.99' in pw and '39.99' in pw and '49.99' not in pw and 'Без подписки' in pw, pw[:300])
+check('«осталось N из 100» — настоящий счётчик мест', 'осталось 87 из 100' in page.inner_text('#fdLeft'), page.inner_text('#fdLeft'))
 page.fill('#donateAmount', '5'); page.click('#buyDonate'); page.wait_for_timeout(200)
 check('донат меньше 10 € не принимается', '10' in page.inner_text('#paywallNote'), page.inner_text('#paywallNote'))
 page.evaluate("()=>{CURRENT_STORY = { id:'rd-dl', title:'Кит и маяк', panels:['Жил-был кит.','Он светил.'], art:[], audio:{ full:'data:audio/webm;base64,GkXfow==' } }; openStoryPlayer();}"); page.wait_for_timeout(400)
