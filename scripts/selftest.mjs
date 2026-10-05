@@ -590,6 +590,7 @@ await (async () => {
   } catch (e) { fail++; console.log('  FAIL сказка из своего списка открывается с нового устройства  -> ' + e.message); }
 })();
 
+process.env.SIGNUP_CLOSED = '1';   // эти проверки — про закрытую бету
 console.log('\nзакрытая бета: список ожидания, приглашения, вход');
 await (async () => {
   const S = await import('../lib/store.js'); const B = await import('../lib/beta.js');
@@ -977,6 +978,26 @@ await (async () => {
   await t('неверная ссылка не пускает', async () => {
     const r = await call(auth, { act:'magic', device:'ml-dev2', token:'nope' }, { __r:'otp' }); assert.equal(r._b.outcome, 'link-expired');
   });
+})();
+
+delete process.env.SIGNUP_CLOSED;
+console.log('\nоткрытая регистрация: вход только с кодом (или Google), без кода — никак');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const auth = (await import('../api/auth.js')).default;
+  const call = async (body) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await auth({ method:'POST', headers:{}, query:{ __r:'otp' }, body }, res); return res._b; };
+  const real = global.fetch; let sentCode = null; process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test';
+  global.fetch = async (u, o) => { if (String(u).includes('resend')) { const b = JSON.parse(o.body); const m = /(\d{6})/.exec(b.text || b.html || ''); if (m) sentCode = m[1]; return { ok:true, status:200, text: async () => '{"id":"x"}' }; } return real(u, o); };
+  try {
+    await t('без кода войти нельзя — «быстрого входа» больше нет', async () => {
+      const r = await call({ act:'quick', device:'o-1', email:'open@x.com' }); assert.notEqual(r.outcome, 'ok'); assert.notEqual((await S.loadUser('o-1')).email, 'open@x.com');
+    });
+    await t('новая почта без приглашения: код приходит, после кода — внутри и видна владельцу', async () => {
+      const r1 = await call({ device:'o-1', email:'open@x.com', lang:'ru' }); assert.equal(r1.outcome, 'sent'); assert.ok(sentCode);
+      const r2 = await call({ device:'o-1', email:'open@x.com', code: sentCode }); assert.equal(r2.outcome, 'ok');
+      const row = await S.get('rad:beta:req:open@x.com'); assert.equal(row.status, 'joined');
+    });
+  } finally { global.fetch = real; }
 })();
 
 console.log(`\n${ok} прошло, ${fail} провалено`);
