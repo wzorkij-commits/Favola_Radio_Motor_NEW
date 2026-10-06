@@ -3,7 +3,10 @@
 //
 //   POST /api/pay {device, plan, amount?, email?, back}
 import { normLang } from '../lib/prompts.js';
-import { FOUNDER_LIMIT, founderPrice } from '../lib/plans.js';
+import { publicView } from '../lib/store.js';
+import { FOUNDER_LIMIT, founderPrice, FREE_STORIES as FREE_N } from '../lib/plans.js';
+import * as PR from '../lib/promo.js';
+import { isOwner } from '../lib/owner.js';
 import { get as kvGet } from '../lib/store.js';
 import { cors } from '../lib/providers.js';
 import { loadUser, saveUser } from '../lib/store.js';
@@ -25,6 +28,27 @@ export default async function handler(req, res) {
     return res.status(200).json({ sold, limit: FOUNDER_LIMIT, left: Math.max(0, FOUNDER_LIMIT - sold), price: founderPrice(sold) });
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+
+  // ── промокоды: человек вводит код; владелец создаёт, смотрит, выключает ──
+  { const bb = req.body || {};
+    if (bb.act === 'promo' || bb.act === 'promo-create' || bb.act === 'promo-list' || bb.act === 'promo-off' || bb.act === 'grant' || bb.act === 'grant-list') {
+      try {
+        const uu = await loadUser(bb.device);
+        if (bb.act === 'promo') {
+          if (!uu.email) return res.status(200).json({ outcome: 'signin' });   // доступ привязываем к почте, чтобы он был на любом устройстве
+          const r = await PR.redeemPromo(uu, bb.code);
+          if (r.outcome === 'ok') await saveUser(uu);
+          return res.status(200).json({ ...r, me: publicView(uu, FREE_N) });
+        }
+        if (!isOwner(uu.email)) return res.status(403).json({ error: 'только для владельца' });
+        if (bb.act === 'promo-create') return res.status(200).json(await PR.createPromo(bb));
+        if (bb.act === 'promo-off') { await PR.disablePromo(bb.code); return res.status(200).json({ ok: true }); }
+        if (bb.act === 'grant') return res.status(200).json(await PR.grantByEmail(bb));
+        if (bb.act === 'grant-list') return res.status(200).json({ grants: await PR.listGrants() });
+        return res.status(200).json({ promos: await PR.listPromos() });
+      } catch (e) { return res.status(400).json({ error: String(e.message || e) }); }
+    }
+  }
 
   try {
     if (!SUMUP_READY()) {

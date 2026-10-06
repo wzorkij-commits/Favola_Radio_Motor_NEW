@@ -5,6 +5,7 @@
 //   POST /api/auth {device, credential}   — пропуск от Google
 //   POST /api/auth {device, signout:true} — отвязать это устройство
 import { allowed, markJoined, markSignedUp } from '../lib/beta.js';
+import { applyPendingGrants } from '../lib/promo.js';
 import { cors } from '../lib/providers.js';
 import { get, loadUser, saveUser, publicView, linkIdentity, googleKey, emailKey, STORE_READY } from '../lib/store.js';
 import { FREE_STORIES } from '../lib/plans.js';
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
     if (signout) {
       u.google = null; u.name = null; u.email = null;
       if (u.owner) { u.owner = false; u.plan = null; u.stories = 0; u.until = 0; }
-      await saveUser(u);
+await saveUser(u);
       return res.status(200).json({ ...publicView(u, FREE_STORIES), вошёл: false });
     }
 
@@ -58,6 +59,7 @@ export default async function handler(req, res) {
     if (who.email && who.emailVerified) {
       await linkIdentity(u, emailKey(who.email));
       grantOwner(u, who.email);
+      await applyPendingGrants(u, who.email).catch(() => {});   // доступ, который владелец выдал заранее
       await markSignedUp(who.email).catch(() => {});   // вход через Google — тоже виден владельцу
     }
     await saveUser(u);

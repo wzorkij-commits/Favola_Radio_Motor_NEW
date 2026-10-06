@@ -20,7 +20,8 @@ export default async function handler(req, res){
       const me = q.device ? (await loadUser(q.device)).email || null : null;
       if (!(await owner(q.device))) return res.status(403).json({ error: 'только для владельца', me });
       const donations = (await get('rad:donate:list')) || [];
-      return res.status(200).json({ ...(await listAll()), me, online: await presence(), donations, donatedTotal: Math.round(donations.reduce((s, d) => s + (Number(d.amount) || 0), 0) * 100) / 100 });
+      const { computeStats } = await import('../lib/stats.js');
+      return res.status(200).json({ ...(await listAll()), me, online: await presence(), stats: await computeStats({ fresh: q.fresh === '1' }).catch(e => ({ error: String(e.message || e) })), donations, donatedTotal: Math.round(donations.reduce((s, d) => s + (Number(d.amount) || 0), 0) * 100) / 100 });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'GET или POST' });
     if (b.act === 'join') return res.status(200).json(await join(b));
