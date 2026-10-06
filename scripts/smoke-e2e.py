@@ -55,6 +55,8 @@ def api(route):
     if path == 'align':
         n = len(body.get('weights') or [])
         return J({'scenes': [{'from': i, 'to': i, 'start': i, 'end': i+1} for i in range(n)]})
+    if path == 'pay' and body.get('act') == 'promo':
+        return J({'outcome': 'ok', 'granted': {'stories': 100}} if str(body.get('code', '')).upper() == 'MIRRA' else {'outcome': 'not-found'})
     if path == 'pay' and m == 'GET':
         return J({'sold': 13, 'limit': 100, 'left': 87, 'price': 39})
     if path == 'pay' and body.get('plan') == 'support':
@@ -462,6 +464,12 @@ check('оплата: «Семья-основатель» 39 € сверху, п
 check('«осталось N из 100» — настоящий счётчик мест', 'осталось 87 из 100' in page.inner_text('#fdLeft'), page.inner_text('#fdLeft'))
 page.fill('#donateAmount', '5'); page.click('#buyDonate'); page.wait_for_timeout(200)
 check('донат меньше 10 € не принимается', '10' in page.inner_text('#paywallNote'), page.inner_text('#paywallNote'))
+page.click('#promoOpen'); page.wait_for_timeout(150)
+page.fill('#promoCode', 'nope'); page.click('#promoGo'); page.wait_for_timeout(300)
+check('неверный промокод — понятное сообщение', 'Такого кода нет' in page.inner_text('#paywallNote'), page.inner_text('#paywallNote'))
+page.fill('#promoCode', 'mirra'); page.click('#promoGo'); page.wait_for_timeout(300)
+check('промокод MIRRA: «Добавлено сказок: 100»', '100' in page.inner_text('#paywallNote'), page.inner_text('#paywallNote'))
+page.wait_for_timeout(2000)
 page.evaluate("()=>{CURRENT_STORY = { id:'rd-dl', title:'Кит и маяк', panels:['Жил-был кит.','Он светил.'], art:[], audio:{ full:'data:audio/webm;base64,GkXfow==' } }; openStoryPlayer();}"); page.wait_for_timeout(400)
 check('у своей сказки есть «Скачать»', page.is_visible('#storyDownload'))
 page.click('#storyDownload'); page.wait_for_timeout(200)

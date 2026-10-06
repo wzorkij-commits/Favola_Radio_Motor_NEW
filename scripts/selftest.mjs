@@ -1033,5 +1033,88 @@ await (async () => {
   finally { global.fetch = realFetch; }
 })();
 
+console.log('\nпромокоды для своих');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const pay = (await import('../api/pay.js')).default;
+  const call = async (body) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await pay({ method:'POST', headers:{}, query:{}, body }, res); return res; };
+  const own = S.blankUser('pr-own'); own.email = 'wzorkij@gmail.com'; await S.saveUser(own);
+  const mirra = S.blankUser('pr-mirra'); mirra.email = 'mirra@x.com'; await S.saveUser(mirra);
+  const inv = S.blankUser('pr-inv'); inv.email = 'investor@x.com'; await S.saveUser(inv);
+  await t('создать код может только владелец', async () => {
+    assert.equal((await call({ act:'promo-create', device:'pr-mirra', code:'HACK', stories:100 }))._s, 403);
+  });
+  await t('безлимитный код MIRRA на год: после ввода сказки без ограничений', async () => {
+    const c = await call({ act:'promo-create', device:'pr-own', code:'mirra', unlimited:true, days:365, note:'Мирра' }); assert.equal(c._b.code, 'MIRRA');
+    const r = await call({ act:'promo', device:'pr-mirra', code:'Mirra' }); assert.equal(r._b.outcome, 'ok');
+    const u = await S.loadUser('pr-mirra'); assert.equal(u.stories, null); assert.ok(u.until > Date.now() + 300 * 86400000);
+  });
+  await t('код на 100 сказок для инвесторов, на 2 человека; третий — «закончился», повтор — «уже применён»', async () => {
+    await call({ act:'promo-create', device:'pr-own', code:'INVEST', stories:100, uses:2 });
+    assert.equal((await call({ act:'promo', device:'pr-inv', code:'invest' }))._b.outcome, 'ok');
+    assert.equal((await S.loadUser('pr-inv')).stories >= 100, true);
+    assert.equal((await call({ act:'promo', device:'pr-inv', code:'INVEST' }))._b.outcome, 'already');
+    const i2 = S.blankUser('pr-inv2'); i2.email = 'inv2@x.com'; await S.saveUser(i2); assert.equal((await call({ act:'promo', device:'pr-inv2', code:'INVEST' }))._b.outcome, 'ok');
+    const i3 = S.blankUser('pr-inv3'); i3.email = 'inv3@x.com'; await S.saveUser(i3); assert.equal((await call({ act:'promo', device:'pr-inv3', code:'INVEST' }))._b.outcome, 'used-up');
+  });
+  await t('без входа код не применяется (просим войти); несуществующий код — «не найден»', async () => {
+    assert.equal((await call({ act:'promo', device:'pr-anon', code:'MIRRA' }))._b.outcome, 'signin');
+    assert.equal((await call({ act:'promo', device:'pr-inv', code:'NOPE' }))._b.outcome, 'not-found');
+  });
+  await t('владелец сам даёт доступ зарегистрированной Мирре — без кода, на всех её устройствах', async () => {
+    const m1 = S.blankUser('gr-m1'); m1.email = 'mirra2@x.com'; await S.saveUser(m1); await S.linkIdentity(m1, S.emailKey('mirra2@x.com'));
+    const m2 = S.blankUser('gr-m2'); m2.email = 'mirra2@x.com'; await S.saveUser(m2); await S.linkIdentity(m2, S.emailKey('mirra2@x.com'));
+    assert.equal((await call({ act:'grant', device:'pr-mirra', email:'mirra2@x.com', unlimited:true, days:365 }))._s, 403, 'не владелец — нельзя');
+    const r = await call({ act:'grant', device:'pr-own', email:'Mirra2@x.com', unlimited:true, days:365 }); assert.equal(r._b.status, 'applied');
+    assert.equal((await S.loadUser('gr-m1')).stories, null); assert.equal((await S.loadUser('gr-m2')).stories, null);
+  });
+  await t('владелец видит коды: кто и когда применил', async () => {
+    const l = await call({ act:'promo-list', device:'pr-own' }); const m = l._b.promos.find(p => p.code === 'MIRRA'); assert.equal(m.used, 1); assert.equal(m.by[0].email, 'mirra@x.com');
+  });
+})();
+
+console.log('\nвладелец даёт доступ по почте');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const pay = (await import('../api/pay.js')).default; const auth = (await import('../api/auth.js')).default;
+  const call = async (h, body, query = {}) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await h({ method:'POST', headers:{}, query, body }, res); return res; };
+  await t('уже зарегистрирована: безлимит на год — сразу на всех её устройствах', async () => {
+    const a = S.blankUser('gr-phone'); a.email = 'mirra2@x.com'; await S.saveUser(a); await S.linkIdentity(a, S.emailKey('mirra2@x.com'));
+    const b = S.blankUser('gr-ipad'); b.email = 'mirra2@x.com'; await S.saveUser(b); await S.linkIdentity(b, S.emailKey('mirra2@x.com'));
+    const r = await call(pay, { act:'grant', device:'pr-own', email:'Mirra2@x.com', unlimited:true, days:365, note:'Мирра' });
+    assert.equal(r._b.status, 'applied');
+    assert.equal((await S.loadUser('gr-phone')).stories, null); assert.equal((await S.loadUser('gr-ipad')).stories, null);
+  });
+  await t('не владелец выдать доступ не может', async () => { assert.equal((await call(pay, { act:'grant', device:'gr-phone', email:'x@x.com', stories:100 }))._s, 403); });
+  await t('ещё не зарегистрирован: 100 сказок ждут и включаются при первом входе по коду', async () => {
+    const r = await call(pay, { act:'grant', device:'pr-own', email:'future@x.com', stories:100 }); assert.equal(r._b.status, 'pending');
+    const real = global.fetch; let code = null; process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test';
+    global.fetch = async (u, o) => { if (String(u).includes('resend')) { const m = /(\d{6})/.exec(JSON.parse(o.body).text || ''); if (m) code = m[1]; return { ok:true, status:200, text: async () => '{"id":"x"}' }; } return real(u, o); };
+    try {
+      await call(auth, { device:'gr-new', email:'future@x.com' }, { __r:'otp' });
+      await call(auth, { device:'gr-new', email:'future@x.com', code }, { __r:'otp' });
+    } finally { global.fetch = real; }
+    assert.ok((await S.loadUser('gr-new')).stories >= 100);
+    const l = await call(pay, { act:'grant-list', device:'pr-own' }); assert.equal(l._b.grants.find(g => g.email === 'future@x.com').status, 'applied');
+  });
+})();
+
+console.log('\nстатистика для инвесторов');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const { computeStats } = await import('../lib/stats.js');
+  const DAY = 86400000, now = Date.now();
+  const mk = async (id, email, stories, pays) => { const u = S.blankUser(id); u.email = email; u.radio_made = stories.map(s => s.id); u.payments = pays || []; await S.saveUser(u); for (const st of stories) await S.set('rad:story:' + st.id, st); };
+  await mk('st-a', 'a@stat.x', [{ id:'sa1', at: now - 3 * DAY, kind:'record' }, { id:'sa2', at: now - 1 * DAY, kind:'wizard' }], [{ ref:'p1', status:'PAID', plan:'pack15', amount:17.99, paidAt: now - DAY }]);
+  await mk('st-b', 'b@stat.x', [{ id:'sb1', at: now - 2 * DAY, kind:'library' }, { id:'sb2', at: now - 2 * DAY + 1000, kind:'record' }]);
+  await mk('st-c', 'c@stat.x', []);
+  await t('считает людей, сказки, возврат в другой день, платящих и выручку', async () => {
+    const s = await computeStats({ fresh: true });
+    assert.ok(s.users.total >= 3); assert.ok(s.stories.total >= 4); assert.ok(s.stories.byKind.record >= 2);
+    assert.ok(s.retention.madeTwo >= 2); assert.ok(s.retention.returned >= 1, 'a вернулся в другой день');
+    assert.ok(s.money.payers >= 1); assert.ok(s.money.revenue >= 17.99); assert.equal(s.daily.length, 14);
+  });
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);
