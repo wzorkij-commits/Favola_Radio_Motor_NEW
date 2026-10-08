@@ -75,11 +75,10 @@ check('после FREE_STORIES бесплатных без оплаты — не
   const u = blankUser('dev2'); u.made = FREE_STORIES;
   assert.equal(canMake(u, FREE_STORIES).ok, false);
 });
-check('вторая и третья сказки из записи — бесплатно, четвёртая без оплаты — нельзя', () => {
+check('новый аккаунт: вторая сказка из записи — бесплатно, третья без оплаты — нельзя', () => {
   const u = blankUser('dev3'); u.made = 1;
   assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, true);
-  u.made = 2; assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, true);
-  u.made = 3; assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, false);
+  u.made = 2; assert.equal(canMakeRecord(u, FREE_STORIES, RECORD_FREE).ok, false);
 });
 check('publicView не отдаёт лишнего', () => {
   const u = blankUser('dev4');
@@ -472,10 +471,10 @@ console.log('\nпропуск на сказку: без списания ска�
     } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); }
   })();
   await (async () => {
-    const name = 'три сказки бесплатно, четвёртой без оплаты нет: spend отказывает и пропуск не выдаёт';
+    const name = 'новому — две сказки бесплатно, третьей без оплаты нет: spend отказывает и пропуск не выдаёт';
     try {
       const device = 'tk-dev2-' + Date.now();
-      for (let k = 0; k < 3; k++) { const r = await call(spend, { method:'POST', body:{ device, kind:'record' } }); assert.equal(r._b.ok, true, 'бесплатная № ' + (k + 1)); assert.ok(r._b.ticket); }
+      for (let k = 0; k < 2; k++) { const r = await call(spend, { method:'POST', body:{ device, kind:'record' } }); assert.equal(r._b.ok, true, 'бесплатная № ' + (k + 1)); assert.ok(r._b.ticket); }
       const sp4 = await call(spend, { method:'POST', body:{ device, kind:'record' } });
       assert.equal(sp4._b.ok, false); assert.equal(sp4._b.ticket, undefined);
       ok++; console.log('  ok   ' + name);
@@ -1113,6 +1112,26 @@ await (async () => {
     assert.ok(s.users.total >= 3); assert.ok(s.stories.total >= 4); assert.ok(s.stories.byKind.record >= 2);
     assert.ok(s.retention.madeTwo >= 2); assert.ok(s.retention.returned >= 1, 'a вернулся в другой день');
     assert.ok(s.money.payers >= 1); assert.ok(s.money.revenue >= 17.99); assert.equal(s.daily.length, 14);
+  });
+})();
+
+console.log('\nбесплатные сказки: новым — две, пришедшим раньше — три');
+await (async () => {
+  const t = async (name, fn) => { try { await fn(); ok++; console.log('  ok   ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + '  -> ' + e.message); } };
+  const S = await import('../lib/store.js'); const { FREE_STORIES } = await import('../lib/plans.js');
+  await t('новый аккаунт: две сказки бесплатно, третья — к оплате', async () => {
+    const u = S.blankUser('fr-new'); assert.equal(u.free, 2);
+    u.made = 1; assert.equal(S.canMake(u, FREE_STORIES).ok, true); assert.equal(S.publicView(u, FREE_STORIES).freeLeft, 1);
+    u.made = 2; assert.equal(S.canMake(u, FREE_STORIES).ok, false); assert.equal(S.canMakeRecord(u, FREE_STORIES).ok, false);
+  });
+  await t('аккаунт, созданный раньше (без поля free): по-прежнему три', async () => {
+    const u = S.blankUser('fr-old'); delete u.free; u.made = 2;
+    assert.equal(S.canMake(u, FREE_STORIES).ok, true); assert.equal(S.publicView(u, FREE_STORIES).freeTotal, 3);
+    u.made = 3; assert.equal(S.canMake(u, FREE_STORIES).ok, false);
+  });
+  await t('новый аккаунт с купленным пакетом — делает сказки дальше', async () => {
+    const u = S.blankUser('fr-paid'); u.made = 2; u.stories = 5; u.until = Date.now() + 86400000;
+    assert.equal(S.canMake(u, FREE_STORIES).ok, true);
   });
 })();
 
