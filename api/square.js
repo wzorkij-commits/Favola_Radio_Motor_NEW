@@ -5,10 +5,11 @@
 //   POST /api/square {act:'swallow'|'submit'|'withdraw'|'report', device, id, …}
 //   владелец: GET ?act=pending|imports; POST {act:'publish'|'reject'|'unpublish'|'import'|'import-ticket'}
 //   GET  /api/share?s=ключ                         — сказка по ссылке, без входа
+//   GET  /api/share?sq=id                          — сказка с Площади по ссылке, без входа (пока опубликована)
 //   POST /api/share {act:'create'|'revoke', device, id}
 import { waitUntil } from '@vercel/functions';
 import { cors } from '../lib/providers.js';
-import { get, set, loadUser } from '../lib/store.js';
+import { get, set, loadUser, saveUser } from '../lib/store.js';
 import { asked } from '../lib/route.js';
 import { issueTicket } from '../lib/ticket.js';
 import * as Q from '../lib/square.js';
@@ -23,6 +24,7 @@ export default async function handler(req, res){
     // ── ссылка «поделиться» ──
     if (asked(req) === 'share'){
       if (req.method === 'GET'){
+        if (q.sq){ const st = await Q.openSquareLink(q.sq); return st ? res.status(200).json(st) : res.status(404).json({ error: 'сказки больше нет на Площади' }); }
         const st = await Q.openShare(q.s);
         return st ? res.status(200).json(st) : res.status(404).json({ error: 'ссылка не действует' });
       }
@@ -82,6 +84,8 @@ export default async function handler(req, res){
         const rec = await get(Q.storyKey(q.id));
         const live = rec && rec.square && rec.square.status === 'live';
         if (!live && !(owner && rec)) return res.status(404).json({ error: 'сказки нет на Площади' });
+        if (!Q.canListen(u, rec, { owner: !!owner, device })) return res.status(402).json({ paywall: true, error: 'первая сказка Площади была бесплатной, дальше — с пакетом сказок' });
+        if (!owner && !Q.mine(rec, device, u) && Q.markHeard(u, rec)) await saveUser(u);
         return res.status(200).json({ ...(await Q.publicStory(rec)), mine: !!(await get(`rad:sq:vote:${rec.id}:${who}`)) });
       }
       const sqLang = ['ru','en','pt','es','de','zh','lt'].includes(q.lang) ? q.lang : null;   // владельцу на beta-admin — все языки
