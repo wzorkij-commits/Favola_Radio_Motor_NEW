@@ -696,6 +696,16 @@ await (async () => {
     await call({ method:'POST', query:{ __r:'share' }, body:{ act:'revoke', device:'sq-mom', id:'st-mom' } });
     assert.equal((await call({ method:'GET', query:{ __r:'share', s: tok } }))._s, 404);
   });
+  await t('ссылка на сказку с Площади: открывается без входа, пока сказка опубликована', async () => {
+    assert.equal((await call({ method:'GET', query:{ __r:'share', sq:'st-mom' } }))._s, 404, 'не опубликована — не открывается');
+    await Q.publish(await S.get('rad:story:st-mom'), { author:'Мама Аня' });
+    const g = await call({ method:'GET', query:{ __r:'share', sq:'st-mom' } });
+    assert.equal(g._s, 200); assert.equal(g._b.title, 'Кит и маяк'); assert.equal(g._b.author, 'Мама Аня'); assert.equal(g._b.email, undefined); assert.equal(g._b.device, undefined);
+    assert.equal((await S.get('rad:story:st-mom')).square.linkPlays, 1);
+    assert.match(Q.squareLink('st-mom'), /listen\.html\?sq=st-mom$/);
+    await Q.withdraw(await S.get('rad:story:st-mom'));
+    assert.equal((await call({ method:'GET', query:{ __r:'share', sq:'st-mom' } }))._s, 404, 'снята с Площади — ссылка не работает');
+  });
   await t('пока Площадь закрыта, её видит только владелец', async () => {
     assert.equal((await call({ method:'GET', query:{ device:'sq-fan' } }))._b.open, false);
     assert.equal((await call({ method:'GET', query:{ device:'sq-own' } }))._b.open, true);
@@ -1133,6 +1143,29 @@ await (async () => {
     const u = S.blankUser('fr-paid'); u.made = 2; u.stories = 5; u.until = Date.now() + 86400000;
     assert.equal(S.canMake(u, FREE_STORIES).ok, true);
   });
+})();
+
+console.log('\nПлощадь: первая сказка бесплатно, дальше — с оплатой');
+await (async () => {
+  const S = await import('../lib/store.js'); const Q = await import('../lib/square.js'); const P = await import('../lib/promo.js');
+  const h = (await import('../api/square.js')).default;
+  const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; req.body = req.body || {}; await h(req, res); return res; };
+  const prev = process.env.SQUARE_OPEN; process.env.SQUARE_OPEN = '1';
+  try {
+    const author = S.blankUser('pw-author'); author.email = 'author@x.com'; author.radio_made = ['pw-a', 'pw-b']; await S.saveUser(author);
+    for (const id of ['pw-a', 'pw-b']) { await S.set('rad:story:' + id, { id, device:'pw-author', email:'author@x.com', title:'Сказка ' + id, panels:['Раз.'], art:[], audio:{}, done:true }); await Q.publish(await S.get('rad:story:' + id), { author:'Автор' }); }
+    const fan = S.blankUser('pw-fan'); fan.email = 'pwfan@x.com'; await S.saveUser(fan);
+    const g = id => call({ method:'GET', query:{ id, device:'pw-fan' } });
+    assert.equal((await g('pw-a'))._s, 200, 'первая — бесплатно');
+    assert.equal((await g('pw-a'))._s, 200, 'её же можно переслушать');
+    const locked = await g('pw-b'); assert.equal(locked._s, 402); assert.equal(locked._b.paywall, true);
+    assert.equal((await call({ method:'GET', query:{ id:'pw-b', device:'pw-author' } }))._s, 200, 'автор слушает свои без ограничений');
+    const u = await S.loadUser('pw-fan'); P.applyGrant(u, { stories: 5 }); await S.saveUser(u);
+    assert.equal((await g('pw-b'))._s, 200, 'после оплаты — без ограничений');
+    const share = await call({ method:'GET', query:{ __r:'share', sq:'pw-b' } }); assert.equal(share._s, 200, 'ссылку, которой поделились, слушают без входа');
+    ok++; console.log('  ok   одна чужая сказка бесплатно, дальше — пакет; свои и оплаченные без ограничений; ссылка работает');
+  } catch (e) { fail++; console.log('  FAIL Площадь и оплата  -> ' + e.message); }
+  finally { if (prev === undefined) delete process.env.SQUARE_OPEN; else process.env.SQUARE_OPEN = prev; }
 })();
 
 console.log(`\n${ok} прошло, ${fail} провалено`);

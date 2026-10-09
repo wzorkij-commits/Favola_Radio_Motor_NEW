@@ -89,6 +89,7 @@ def api(route):
     if path == 'square':
         q = {k: v[0] for k, v in qs.items()}
         if m == 'GET' and q.get('act') == 'status': return J({'open': True, 'owner': False, 'public': True})
+        if m == 'GET' and q.get('id') == 'sq-locked': return J({'paywall': True, 'error': 'дальше — с пакетом'}, 402)
         if m == 'GET' and q.get('id'): return J({'id': q.get('id'), 'title': 'Кит и маяк', 'panels': ['Жил-был кит.'], 'art': [JPG], 'audio': {'voice': None}, 'meta': None, 'author': 'Равшана Куркова', 'verified': True, 'swallows': 0, 'mine': False})
         if m == 'GET': return J({'open': True, 'total': 2, 'week': None,
             'stars': [{'id': 'sq1', 'title': 'Кит и маяк', 'author': 'Равшана Куркова', 'verified': True, 'swallows': 0, 'seed': 'a'}],
@@ -101,6 +102,7 @@ def api(route):
         tr = {'en': {'title': 'The whale', 'panels': ['Once there was a whale.', 'It shone.'], 'audio': (['data:audio/mpeg;base64,AAAA', 'data:audio/mpeg;base64,AAAA'] if body.get('act') == 'narrate' else None)}}
         return J({'tr': tr})
     if path == 'share':
+        if m == 'GET' and qs.get('sq'): SQ_EVENTS.append('open-sq:' + qs['sq'][0]); return J({'id': qs['sq'][0], 'title': 'Кит и маяк', 'panels': ['Жил-был кит.'], 'art': [JPG], 'audio': {'voice': None}, 'meta': None, 'author': 'Мама Ани'})
         SQ_EVENTS.append('share'); return J({'token': 'tok', 'url': 'https://www.favola.space/listen.html?s=tok', 'plays': 0})
     if path == 'image': return J({'image': JPG})
     if path == 'art':
@@ -443,19 +445,32 @@ check('на главной появилась «Площадь», когда о�
 page.click('#goSquare'); page.wait_for_timeout(700)
 check('на Площади — голоса Favola и новые сказки', page.locator('#sqStars .book').count() == 1 and page.locator('#sqFresh .book').count() == 1 and 'голос Favola' in page.inner_text('#sqStars'))
 page.click('#sqStars .book'); page.wait_for_timeout(800)
-check('сказка с Площади открылась, есть кнопка «Ласточка», нет «Поделиться»', page.is_visible('#storySwallow') and page.is_hidden('#storyShare'))
+check('сказка с Площади открылась, есть «Ласточка» и «Поделиться»', page.is_visible('#storySwallow') and page.is_visible('#storyShare'))
+n_share = SQ_EVENTS.count('share'); page.click('#storyShare'); page.wait_for_timeout(300)
+check('«Поделиться» у сказки с Площади: общая ссылка, без «Закрыть доступ» и без запроса к мотору', page.is_visible('#shareBg') and 'listen.html?sq=sq1' in page.input_value('#shareUrl') and page.is_hidden('#shareRevoke') and SQ_EVENTS.count('share') == n_share, page.input_value('#shareUrl'))
+page.click('#shareClose'); page.wait_for_timeout(150)
 page.click('#storySwallow'); page.wait_for_timeout(400)
 check('ласточка отправлена, счётчик обновился', 'swallow' in SQ_EVENTS and '· 1' in page.inner_text('#storySwallowTx') and page.get_attribute('#storySwallow', 'aria-pressed') == 'true', page.inner_text('#storySwallowTx'))
 page.evaluate("()=>{CURRENT_STORY = { id:'rd-own', title:'Моя сказка', panels:['Раз.'], art:[], audio:{} }; openStoryPlayer();}"); page.wait_for_timeout(500)
 check('у своей сказки — «Поделиться» и «На Площадь», без ласточки', page.is_visible('#storyShare') and page.is_visible('#storyToSquare') and page.is_hidden('#storySwallow'))
 page.click('#storyShare'); page.wait_for_timeout(500)
 check('«Поделиться» даёт ссылку на страницу прослушивания', page.is_visible('#shareBg') and 'listen.html?s=' in page.input_value('#shareUrl'))
+check('у своей сказки снова видно «Закрыть доступ»', page.is_visible('#shareRevoke'))
 page.click('#shareClose'); page.click('#storyToSquare'); page.wait_for_timeout(300)
 page.click('#sqSend'); page.wait_for_timeout(300)
 check('на Площадь без подписи и галочек не отправить', not any(e.startswith('submit') for e in SQ_EVENTS))
 page.fill('#sqAuthor', 'Мама Ани'); page.check('#sqNoChild'); page.check('#sqRules'); page.click('#sqSend'); page.wait_for_timeout(400)
 check('сказка отправлена на проверку', 'submit:Мама Ани' in SQ_EVENTS and ('проверки' in page.inner_text('#sqSheetNote') or 'check' in page.inner_text('#sqSheetNote')), page.inner_text('#sqSheetNote'))
 page.click('#sqClose')
+page.evaluate("()=>openSquareStory('sq-locked')"); page.wait_for_timeout(500)
+check('вторая чужая сказка Площади без оплаты — экран пакетов с объяснением', page.is_visible('[data-screen=paywall] h1') and 'Площади' in page.inner_text('[data-screen=paywall] h1'), page.inner_text('[data-screen=paywall] h1'))
+page.evaluate("()=>openPaywall()"); page.wait_for_timeout(200)
+check('обычный экран пакетов — с обычным заголовком', 'Площади' not in page.inner_text('[data-screen=paywall] h1'))
+page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(300)
+lp = ctx.new_page(); lp.route('https://favola-radio.vercel.app/**', api)
+lp.goto(f'http://localhost:{PORT}/listen.html?sq=sq1'); lp.wait_for_timeout(800)
+check('ссылка на сказку с Площади открывается без входа: название и автор', 'open-sq:sq1' in SQ_EVENTS and 'Кит и маяк' in lp.inner_text('#title') and 'Мама Ани' in lp.inner_text('#by'))
+lp.close()
 
 # ── тарифы и скачивание ──
 page.evaluate("()=>{ openPaywall ? openPaywall() : show('paywall'); }"); page.wait_for_timeout(400)
