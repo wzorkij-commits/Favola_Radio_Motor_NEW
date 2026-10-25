@@ -444,6 +444,8 @@ page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(
 check('на главной появилась «Площадь», когда она открыта', page.is_visible('#goSquare'))
 page.click('#goSquare'); page.wait_for_timeout(700)
 check('на Площади — голоса Favola и новые сказки', page.locator('#sqStars .book').count() == 1 and page.locator('#sqFresh .book').count() == 1 and 'голос Favola' in page.inner_text('#sqStars'))
+sqgeo = page.evaluate("""()=>{const g=getComputedStyle(document.getElementById('sqStars')).display; const fr=[...document.querySelectorAll('#sqStars .bframe, #sqFresh .bframe')].map(e=>{const r=e.getBoundingClientRect(); return [Math.round(r.width),Math.round(r.height)]}); return {g, fr}}""")
+check('Площадь: голоса и новые в одной сетке, плитки квадратные и одного размера', sqgeo['g']=='grid' and sqgeo['fr'] and all(w>60 and abs(w-h)<=1 for w,h in sqgeo['fr']) and len({w for w,h in sqgeo['fr']})==1, sqgeo)
 page.click('#sqStars .book'); page.wait_for_timeout(800)
 check('сказка с Площади открылась, есть «Ласточка» и «Поделиться»', page.is_visible('#storySwallow') and page.is_visible('#storyShare'))
 n_share = SQ_EVENTS.count('share'); page.click('#storyShare'); page.wait_for_timeout(300)
@@ -498,12 +500,13 @@ bk.close(); page.click('#dlClose')
 page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(700)
 check('на главной есть «Колыбельные», когда они загружены', page.is_visible('#goLull'))
 page.click('#goLull'); page.wait_for_timeout(700)
-check('список колыбельных с обложкой и названием', page.locator('#luGrid .book').count() == 2 and 'Спи, моя радость' in page.inner_text('#luGrid'))
-page.click('#luGrid .book'); page.wait_for_timeout(600)
+check('список колыбельных: плитка, название, кнопка ▶', page.locator('#luGrid .lurow').count() == 2 and 'Спи, моя радость' in page.inner_text('#luGrid'))
+page.click('#luGrid .lurow >> nth=0'); page.wait_for_timeout(600)
+check('у колыбельных ночные плитки азулежу, без сгенерированных обложек', page.locator('#luGrid .lutile svg.tile').count() == 2 or page.evaluate("()=>document.querySelectorAll('#lpMore .lutile svg').length >= 1"))
 check('колыбельная открылась: обложка, кнопки «Повторять» и «Таймер сна»', cur() == 'lullplayer' and page.is_visible('#lpPlay') and page.is_visible('#lpLoop') and page.is_visible('#lpTimer'))
 page.click('#lpTimer'); page.click('#lpLoop'); page.wait_for_timeout(100)
 check('таймер сна и повтор переключаются', '15' in page.inner_text('#lpTimer') and page.get_attribute('#lpLoop', 'aria-pressed') == 'true', page.inner_text('#lpTimer'))
-check('в плеере — «назад/вперёд», ровный значок на кнопке и «Другие колыбельные»', page.is_visible('#lpPrev') and page.is_visible('#lpNext') and page.locator('#lpPlay svg').count() == 1 and page.locator('#lpMore .book').count() == 1)
+check('в плеере — «назад/вперёд», ровный значок на кнопке и «Другие колыбельные»', page.is_visible('#lpPrev') and page.is_visible('#lpNext') and page.locator('#lpPlay svg').count() == 1 and page.locator('#lpMore .lurow').count() == 1)
 page.click('#lpNext'); page.wait_for_timeout(500)
 check('«вперёд» включает следующую колыбельную', 'Баю-бай' in page.inner_text('#lpTitle') or 'Спи' in page.inner_text('#lpTitle'))
 page.evaluate("()=>{ const a=document.getElementById('lpAudio'); window.__lpPaused=false; const p0=a.pause.bind(a); a.pause=()=>{ window.__lpPaused=true; try{ p0(); }catch(e){} }; }")
@@ -548,11 +551,47 @@ page.click('#storyTranslate'); page.wait_for_timeout(200)
 check('«Стоп» на кнопке перевода выключает голос Favola', not page.evaluate("()=>TR_ON") and page.is_hidden('#trBar'))
 page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(200)
 
+# ── листание книжки пальцем (13.10.2026) ──
+page.evaluate("()=>{CURRENT_STORY={kind:'library',title:'Свайп',lang:'ru',panels:['Раз.','Два.','Три.'],art:[],questions:[],audio:{}}; openStoryPlayer();}"); page.wait_for_timeout(400)
+def swipe(dx, dur=120):
+    page.evaluate("""([dx,dur])=>new Promise(res=>{const a=document.querySelector('[data-screen=story] .storypage');const r=a.getBoundingClientRect();const x=r.left+r.width/2,y=r.top+r.height/2;
+      const ev=(t,xx)=>a.dispatchEvent(new PointerEvent(t,{pointerId:9,pointerType:'touch',clientX:xx,clientY:y,bubbles:true}));
+      ev('pointerdown',x); setTimeout(()=>{ev('pointerup',x+dx);res()},dur);})""", [dx, dur]); page.wait_for_timeout(350)
+swipe(-90); a1 = page.evaluate("()=>curPage"); swipe(80); a2 = page.evaluate("()=>curPage"); swipe(-12); a3 = page.evaluate("()=>curPage")
+check('книжку листают пальцем: влево — дальше, вправо — назад, лёгкое касание не листает', (a1, a2, a3) == (1, 0, 0), (a1, a2, a3))
+# ── подписи «как сделана сказка» на всех языках, стена не падает (раньше падала на pt/es/de/zh/lt) ──
+labels = page.evaluate("""()=>['ru','en','pt','es','de','zh','lt'].map(l=>{ LANG=l; return ['record','library','wizard'].map(kindLabel).join('|'); })""")
+page.evaluate("()=>{ LANG='ru'; }")
+check('подписи «рассказано голосом / прочитано / придумано» есть на всех семи языках', all(x and 'undefined' not in x for x in labels) and len(set(labels)) == 7, labels)
+page.evaluate("()=>{ LANG='de'; renderWall([{id:'k1',title:'A',kind:'record'},{id:'k2',title:'B',kind:'wizard'}]); LANG='ru'; }")
+check('стена сказок на немецком собирается с фильтрами', page.locator('#wallChips button').count() == 3 and 'Selbst erzählt' in page.inner_text('#wallChips'), page.inner_text('#wallChips'))
+page.evaluate("()=>{HIST.length=0; show('hub', false)}"); page.wait_for_timeout(200)
+
 # ── вход по личной ссылке ──
 page.goto(f'http://localhost:{PORT}/app.html?login=goodtoken'); page.wait_for_timeout(1500)
 check('по личной ссылке приложение открывается сразу на главной, без кода', cur() == 'hub' and 'login=' not in page.url, cur())
 
 check('за весь прогон ни одной ошибки в консоли', not errs, errs)
+
+print('демо-режим app.html?demo')
+dctx = b.new_context(viewport={'width':390,'height':844})
+dp = dctx.new_page(); derrs = []; dnet = []
+dp.on('pageerror', lambda e: derrs.append(str(e)[:200]))
+dp.on('request', lambda r: dnet.append(r.url) if 'favola-radio.vercel.app' in r.url else None)
+dp.goto('http://127.0.0.1:%d/app.html?demo' % PORT); dp.wait_for_timeout(900)
+check('демо: метка «Демо» видна', dp.evaluate("!!document.querySelector('.demobadge') && window.FAVOLA_DEMO === true"))
+dp.evaluate("loadMe().then(()=>{HIST.length=0; show('hub',false)})"); dp.wait_for_timeout(900)
+check('демо: на развилке три сказки демо-полки', dp.evaluate("document.querySelectorAll('#recentRow .tile').length") >= 3, dp.evaluate("document.querySelectorAll('#recentRow .tile').length"))
+dp.click('#goRecord'); dp.wait_for_timeout(400)
+check('демо: «Записать» показывает пояснение, оплату не открывает', dp.evaluate("!!document.querySelector('.toast') && document.querySelector('.screen[data-active]').dataset.screen === 'hub'"))
+dp.evaluate("openPaywall()"); dp.wait_for_timeout(400); dp.click('#buyPack15'); dp.wait_for_timeout(400)
+check('демо: покупка не уводит на оплату', dp.url.endswith('app.html?demo'), dp.url)
+dp.evaluate("openSquare()"); dp.wait_for_timeout(700); dp.evaluate("openLullabies()"); dp.wait_for_timeout(700)
+check('демо: ни одного запроса к настоящему мотору', not dnet, dnet[:3])
+check('демо: без ошибок в консоли', not derrs, derrs)
+np_ = dctx.new_page(); np_.route('https://favola-radio.vercel.app/**', api); np_.goto('http://127.0.0.1:%d/app.html' % PORT); np_.wait_for_timeout(600)
+check('без ?demo демо-режим выключен', np_.evaluate("!window.FAVOLA_DEMO && !document.querySelector('.demobadge')"))
+dctx.close()
 
 b.close()
 
