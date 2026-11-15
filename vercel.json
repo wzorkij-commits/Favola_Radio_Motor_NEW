@@ -6,6 +6,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/iap",
+      "destination": "/api/pay?__r=iap"
+    },
+    {
       "source": "/api/translate",
       "destination": "/api/square?__r=translate"
     },
