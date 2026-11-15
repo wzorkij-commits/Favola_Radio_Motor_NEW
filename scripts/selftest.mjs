@@ -1168,5 +1168,82 @@ await (async () => {
   finally { if (prev === undefined) delete process.env.SQUARE_OPEN; else process.env.SQUARE_OPEN = prev; }
 })();
 
+console.log('\nприложения App Store и Google Play: CORS и покупки через магазин');
+await (async () => {
+  const PV = await import('../lib/providers.js');
+  check('без FAVOLA_ORIGIN — запросы отовсюду', () => assert.equal(PV.allowOrigin('capacitor://localhost', ''), '*'));
+  check('с FAVOLA_ORIGIN пускает сайт и приложения, чужих — нет', () => {
+    const env = 'https://www.favola.space,https://favola.space';
+    assert.equal(PV.allowOrigin('https://favola.space', env), 'https://favola.space');
+    assert.equal(PV.allowOrigin('capacitor://localhost', env), 'capacitor://localhost');
+    assert.equal(PV.allowOrigin('https://localhost', env), 'https://localhost');
+    assert.equal(PV.allowOrigin('https://evil.example', env), 'https://www.favola.space');
+  });
+  const I = await import('../lib/h-iap.js'); const S = await import('../lib/store.js');
+  try {
+    const u = S.blankUser('iap-dev'); u.email = 'iap@x.com'; await S.saveUser(u);
+    const ev = { type:'NON_RENEWING_PURCHASE', product_id:'space.favola.pack15', app_user_id:'iap-dev', transaction_id:'T1', store:'APP_STORE', price: 17.99, currency:'EUR' };
+    const r1 = await I.applyIapEvent(ev); assert.equal(r1.ok, true); assert.equal(r1.plan, 'pack15');
+    let v = await S.loadUser('iap-dev'); assert.equal(v.stories, 15, 'начислено 15');
+    const r2 = await I.applyIapEvent(ev); assert.equal(r2.already, true);
+    v = await S.loadUser('iap-dev'); assert.equal(v.stories, 15, 'повтор не начисляет второй раз');
+    await I.applyIapEvent({ ...ev, transaction_id:'T2', product_id:'space.favola.pack5', store:'PLAY_STORE' });
+    v = await S.loadUser('iap-dev'); assert.equal(v.stories, 20, 'второй пакет складывается');
+    assert.equal(v.payments.filter(p => p.status === 'PAID').length, 2);
+    assert.equal((await I.applyIapEvent({ ...ev, type:'CANCELLATION', transaction_id:'T3' })).skipped, 'CANCELLATION');
+    assert.equal((await I.applyIapEvent({ ...ev, app_user_id:'$RCAnonymousID:abc', transaction_id:'T4' })).ok, false, 'анонимная покупка не начисляется');
+    ok++; console.log('  ok   покупка из магазина начисляет пакет один раз, пакеты складываются, отмена и анонимные пропускаются');
+  } catch (e) { fail++; console.log('  FAIL покупки из магазина  -> ' + e.message); }
+  const call = async (h, req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; req.body = req.body || {}; await h(req, res); return res; };
+  const pay = (await import('../api/pay.js')).default;
+  try {
+    delete process.env.REVENUECAT_WEBHOOK_AUTH;
+    assert.equal((await call(pay, { method:'POST', query:{ __r:'iap' }, body:{ event:{ type:'TEST' } } }))._s, 503, 'без секрета не принимает');
+    process.env.REVENUECAT_WEBHOOK_AUTH = 'sekret';
+    assert.equal((await call(pay, { method:'POST', query:{ __r:'iap' }, headers:{ authorization:'wrong' }, body:{ event:{ type:'TEST' } } }))._s, 401, 'чужой секрет');
+    assert.equal((await call(pay, { method:'POST', query:{ __r:'iap' }, headers:{ authorization:'sekret' }, body:{ event:{ type:'TEST' } } }))._s, 200, 'свой секрет');
+    const cfg = await call(pay, { method:'GET', query:{ act:'iap-config' } });
+    assert.equal(cfg._b.products.length, 3); assert.equal(typeof cfg._b.ios, 'string');
+    delete process.env.REVENUECAT_WEBHOOK_AUTH;
+    ok++; console.log('  ok   /api/iap пускает только с секретом; /api/pay?act=iap-config отдаёт ключи и три товара');
+  } catch (e) { fail++; console.log('  FAIL адрес /api/iap  -> ' + e.message); }
+})();
+
+console.log('\nудаление аккаунта целиком (требование магазинов)');
+await (async () => {
+  const S = await import('../lib/store.js'); const acc = (await import('../api/account.js')).default;
+  const call = async (req) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; req.headers = req.headers || {}; req.query = req.query || {}; req.body = req.body || {}; await acc(req, res); return res; };
+  try {
+    const a = S.blankUser('del-a'); a.email = 'del@x.com'; a.radio_made = ['del-s1']; a.stories = 5; await S.saveUser(a);
+    const b = S.blankUser('del-b'); b.email = 'del@x.com'; b.radio_made = ['del-s2']; await S.saveUser(b);
+    await S.set(S.emailKey('del@x.com'), { devices: ['del-a', 'del-b'] });
+    for (const id of ['del-s1', 'del-s2']) await S.set('rad:story:' + id, { id, device: id === 'del-s1' ? 'del-a' : 'del-b', art: [], audio: {}, panels: ['x'] });
+    const r = await call({ method:'POST', query:{ __r:'forget' }, body:{ device:'del-a', confirm:true, account:true } });
+    assert.equal(r._s, 200); assert.equal(r._b.account, 'deleted'); assert.equal(r._b.удалено_сказок, 2);
+    assert.equal(await S.get('rad:story:del-s2'), null, 'сказка со второго устройства удалена');
+    assert.equal(await S.get(S.userKey('del-b')), null, 'второе устройство удалено');
+    assert.equal(await S.get(S.emailKey('del@x.com')), null, 'связь с почтой удалена');
+    assert.equal((await S.loadUser('del-a')).stories, 0, 'после удаления — чистый аккаунт');
+    ok++; console.log('  ok   удаление аккаунта стирает сказки со всех устройств почты, сами аккаунты и связь с почтой');
+  } catch (e) { fail++; console.log('  FAIL удаление аккаунта  -> ' + e.message); }
+})();
+
+console.log('\nвход для проверяющих магазинов');
+await (async () => {
+  const otp = (await import('../lib/h-otp.js')).default;
+  const call = async (body) => { const res = { _s:200, status(c){this._s=c;return this;}, json(o){this._b=o;return this;}, end(){return this;}, setHeader(){return this;} }; await otp({ method:'POST', headers:{}, query:{}, body }, res); return res; };
+  const keep = { k: process.env.RESEND_API_KEY, m: process.env.REVIEW_EMAIL, c: process.env.REVIEW_CODE };
+  process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 'test'; process.env.REVIEW_EMAIL = 'review@favola.space'; process.env.REVIEW_CODE = '246810';
+  try {
+    assert.equal((await call({ device:'rv-1', email:'Review@favola.space' }))._b.outcome, 'sent', 'письмо не шлём, но «отправлено»');
+    assert.equal((await call({ device:'rv-1', email:'review@favola.space', code:'111111' }))._b.outcome, 'wrong');
+    const r = await call({ device:'rv-1', email:'review@favola.space', code:'246810' }); assert.equal(r._b.вошёл, true);
+    process.env.REVIEW_CODE = '';
+    const r2 = await call({ device:'rv-2', email:'review@favola.space', code:'246810' }); assert.notEqual(r2._b.вошёл, true, 'без REVIEW_CODE вход закрыт');
+    ok++; console.log('  ok   постоянный код работает только для REVIEW_EMAIL и только когда задан REVIEW_CODE');
+  } catch (e) { fail++; console.log('  FAIL вход для проверяющих  -> ' + e.message); }
+  finally { for (const [k, v] of [['RESEND_API_KEY', keep.k], ['REVIEW_EMAIL', keep.m], ['REVIEW_CODE', keep.c]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+})();
+
 console.log(`\n${ok} прошло, ${fail} провалено`);
 process.exit(fail ? 1 : 0);

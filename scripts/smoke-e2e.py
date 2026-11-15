@@ -24,6 +24,7 @@ DONATE = []
 ART = {'n': 0, 'polls': 0, 'starts': 0, 'attached': []}
 STATE = {'email': None}
 STORY_STORE = {}
+FORGETS = []
 LIB_URLS = []
 results=[]
 def check(name, cond, extra=''):
@@ -57,6 +58,8 @@ def api(route):
         return J({'scenes': [{'from': i, 'to': i, 'start': i, 'end': i+1} for i in range(n)]})
     if path == 'pay' and body.get('act') == 'promo':
         return J({'outcome': 'ok', 'granted': {'stories': 100}} if str(body.get('code', '')).upper() == 'MIRRA' else {'outcome': 'not-found'})
+    if path == 'pay' and m == 'GET' and qs.get('act') == ['iap-config']:
+        return J({'ios': 'appl_test', 'android': 'goog_test', 'products': []})
     if path == 'pay' and m == 'GET':
         return J({'sold': 13, 'limit': 100, 'left': 87, 'price': 39})
     if path == 'pay' and body.get('plan') == 'support':
@@ -164,7 +167,9 @@ def api(route):
                     rec.setdefault('audio', {})[name] = 'data:audio/webm;base64,AAAA'
             return J({'ok': True, 'url': JPG})
         return J({'ok': True})
-    if path == 'forget': return J({'ok': True, 'удалено_сказок':0, 'удалено_файлов':0})
+    if path == 'forget':
+        FORGETS.append(body)
+        return J({'ok': True, 'удалено_сказок':0, 'удалено_файлов':0})
     return J({'error': 'unexpected ' + path}, 404)
 
 # Поддельный микрофон: настоящее аудио в песочнице недоступно и не нужно —
@@ -592,6 +597,46 @@ check('демо: без ошибок в консоли', not derrs, derrs)
 np_ = dctx.new_page(); np_.route('https://favola-radio.vercel.app/**', api); np_.goto('http://127.0.0.1:%d/app.html' % PORT); np_.wait_for_timeout(600)
 check('без ?demo демо-режим выключен', np_.evaluate("!window.FAVOLA_DEMO && !document.querySelector('.demobadge')"))
 dctx.close()
+
+# ── приложения App Store / Google Play: native.js ──
+nctx = b.new_context(viewport={'width':390,'height':844})
+NATIVE_MOCK = """
+window.__buys = []; window.__cfg = null; window.__opened = [];
+window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: {
+  Purchases: {
+    configure: async (o) => { window.__cfg = o; },
+    getProducts: async (o) => ({ products: o.productIdentifiers.map(id => ({ identifier: id, priceString: id.endsWith('15') ? '17,99 €' : '1,00 €' })) }),
+    purchaseStoreProduct: async (o) => { window.__buys.push(o.product.identifier); return {}; }
+  },
+  Browser: { open: async (o) => { window.__opened.push(o.url); } }
+} };
+"""
+npg = nctx.new_page(); nerrs = []
+npg.on('pageerror', lambda e: nerrs.append(str(e)[:200])); npg.on('dialog', lambda d: d.dismiss())
+npg.add_init_script(NATIVE_MOCK); npg.route('https://favola-radio.vercel.app/**', api); npg.route('https://accounts.google.com/**', lambda r: r.abort())
+STATE['email'] = 'app@x.com'
+npg.goto('http://127.0.0.1:%d/app.html' % PORT); npg.wait_for_timeout(900)
+npg.evaluate("loadMe && loadMe()"); npg.wait_for_timeout(300)
+npg.evaluate("openPaywall()"); npg.wait_for_timeout(900)
+check('приложение: «Семья-основатель», поддержка и вход Google спрятаны', npg.evaluate("!document.querySelector('.plan.founder').offsetParent && !document.getElementById('buyDonate').offsetParent && !document.getElementById('googleWrap').offsetParent"))
+check('приложение: цены пакетов из магазина', '17,99 €' in npg.inner_text('[data-screen=paywall]'), npg.inner_text('[data-screen=paywall]')[:300])
+check('приложение: RevenueCat настроен на ключ iPhone и наш DEVICE', npg.evaluate("window.__cfg && window.__cfg.apiKey === 'appl_test' && window.__cfg.appUserID === DEVICE"))
+npg.click('#buyPack15'); npg.wait_for_timeout(600)
+check('приложение: «Выбрать» покупает через магазин, не уводит на SumUp', npg.evaluate("window.__buys[0] === 'space.favola.pack15'") and npg.url.endswith('app.html'), (npg.evaluate("window.__buys"), npg.url))
+npg.evaluate("show('cabinet'); openCabinet()"); npg.wait_for_timeout(500)
+check('кабинет: есть кнопка «Удалить аккаунт»', npg.is_visible('#deleteAccount') and npg.inner_text('#deleteAccount').strip() != '')
+npg.evaluate("window.confirm = () => true; window.alert = () => {}; location.reload = () => {};")
+npg.click('#deleteAccount'); npg.wait_for_timeout(500)
+check('«Удалить аккаунт» просит мотор удалить аккаунт целиком', any(f.get('account') is True and f.get('confirm') is True for f in FORGETS), FORGETS)
+npg.evaluate("""(() => { const a = document.createElement('a'); a.href = 'privacy.html'; a.target = '_blank'; a.id = 'tlink'; a.textContent = 'x'; document.body.appendChild(a); })()""")
+npg.click('#tlink'); npg.wait_for_timeout(300)
+check('приложение: политика открывается в браузере поверх приложения', npg.evaluate("window.__opened[0] === 'https://www.favola.space/privacy.html'"), npg.evaluate("window.__opened"))
+check('приложение: без ошибок в консоли', not nerrs, nerrs)
+nctx.close()
+wpg = b.new_page(); wpg.route('https://favola-radio.vercel.app/**', api); wpg.goto('http://127.0.0.1:%d/app.html' % PORT); wpg.wait_for_timeout(700)
+wpg.evaluate("openPaywall()"); wpg.wait_for_timeout(500)
+check('сайт: native.js ничего не меняет, «Семья-основатель» на месте', wpg.evaluate("!!document.querySelector('.plan.founder').offsetParent && !document.documentElement.classList.contains('native')"))
+wpg.close()
 
 b.close()
 
