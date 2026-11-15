@@ -14,11 +14,13 @@ import { PLANS, DONATION, CURRENCY, priceOf } from '../lib/plans.js';
 import { createCheckout, SUMUP_READY } from '../lib/sumup.js';
 import { asked } from '../lib/route.js';
 import paystatus from '../lib/h-paystatus.js';
+import iapHook, { iapConfig } from '../lib/h-iap.js';
 
 const okMail = m => typeof m === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(m.trim());
 
 export default async function handler(req, res) {
   if (asked(req) === 'pay-status') return paystatus(req, res);
+  if (asked(req) === 'iap') return iapHook(req, res);
 
   cors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -27,6 +29,8 @@ export default async function handler(req, res) {
     const sold = Number(await kvGet('rad:founders:count')) || 0;
     return res.status(200).json({ sold, limit: FOUNDER_LIMIT, left: Math.max(0, FOUNDER_LIMIT - sold), price: founderPrice(sold) });
   }
+  // ключи RevenueCat для покупок в приложениях App Store и Google Play (публичные)
+  if (req.method === 'GET' && (req.query || {}).act === 'iap-config') return res.status(200).json(iapConfig());
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
   // ── промокоды: человек вводит код; владелец создаёт, смотрит, выключает ──
